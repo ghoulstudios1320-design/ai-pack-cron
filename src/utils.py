@@ -22,5 +22,5 @@ def slugify(text):
 def read_file(p: str) -> str:
     return Path(p).read_text(encoding="utf-8")
 
-def write_file(p: str, content: str):
-    Path(p).write_text(content, encoding="utf-8")
+def write_file(p: Path, content: str):
+    p.write_text(content, encoding="utf-8")
