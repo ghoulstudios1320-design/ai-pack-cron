@@ -48,11 +48,6 @@ jobs:
           NOTION_MEMBERS_PAGE_ID: ${{ secrets.NOTION_MEMBERS_PAGE_ID }}
         run: python -m src.publish_notion
 
-      - name: Notify webhook (optional)
-        env:
-          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
-        run: python -m src.notify_webhook
-
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
