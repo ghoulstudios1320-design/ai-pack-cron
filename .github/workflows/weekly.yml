@@ -1,3 +1,29 @@
+name: weekly-pack
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 14 * * 1"  # Mondays 14:00 UTC
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
       - name: Generate weekly pack
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -15,3 +41,14 @@
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
           NOTION_MEMBERS_PAGE_ID: ${{ secrets.NOTION_MEMBERS_PAGE_ID }}
         run: python -m src.publish_notion
+
+      - name: Notify webhook (optional)
+        env:
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+        run: python -m src.notify_webhook
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: weekly-output
+          path: output/
