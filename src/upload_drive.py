@@ -28,18 +28,16 @@ def upload_file(svc, folder_id: str, path: Path, mime: str) -> str:
     return f["id"]
 
 def make_public_link(svc, file_id: str) -> str:
-    # Turn on "Anyone with the link: Viewer"
     svc.permissions().create(
         fileId=file_id,
         body={"role": "reader", "type": "anyone"},
         supportsAllDrives=True
     ).execute()
-    # Direct download-ish link
     return f"https://drive.google.com/uc?id={file_id}"
 
 def main():
     svc = drive()
-    parent = os.environ["GOOGLE_DRIVE_FOLDER_ID"]  # MUST be a folder inside a Shared drive
+    parent = os.environ["GOOGLE_DRIVE_FOLDER_ID"]  # folder inside a Shared drive
     out_root = Path("output")
     weekly = sorted(out_root.glob("*"))[-1]  # latest run folder, e.g. 2025-W39
     week_name = weekly.name
