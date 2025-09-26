@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PYTHONPATH: ${{ github.workspace }}
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,12 +25,17 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Generate weekly pack
+      - name: Sanitize OPENAI key (optional)
         env:
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          RAW_OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          CLEAN=$(printf "%s" "$RAW_OPENAI_KEY" | tr -d '\r\n')
+          echo "OPENAI_API_KEY=$CLEAN" >> $GITHUB_ENV
+
+      - name: Generate weekly pack
         run: python -m src.generate_pack
 
-      - name: Upload to Google Drive
+      - name: Upload to Google Drive (Shared drive)
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
