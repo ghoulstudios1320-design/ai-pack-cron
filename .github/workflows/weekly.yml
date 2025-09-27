@@ -25,22 +25,24 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # ---- Content generation ----
       - name: Sanitize OPENAI key (optional)
         env:
           RAW_OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
-          CLEAN=$(printf "%s" "$RAW_OPENAI_KEY" | tr -d '\r\n')
-          echo "OPENAI_API_KEY=$CLEAN" >> $GITHUB_ENV
+          echo "OPENAI_API_KEY=$(printf "%s" "$RAW_OPENAI_KEY" | tr -d '\r\n')" >> $GITHUB_ENV
 
       - name: Generate weekly pack
         run: python -m src.generate_pack
 
+      # ---- Google Drive upload (Shared Drive) ----
       - name: Upload to Google Drive (Shared drive)
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
         run: python -m src.upload_drive
 
+      # ---- Notion publish ----
       - name: Publish to Notion
         env:
           NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
@@ -48,6 +50,22 @@ jobs:
           NOTION_MEMBERS_PAGE_ID: ${{ secrets.NOTION_MEMBERS_PAGE_ID }}
         run: python -m src.publish_notion
 
+      # ---- Webhook notify (Make) ----
+      - name: Sanitize webhook vars
+        env:
+          RAW_WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+          RAW_WEBHOOK_TOKEN: ${{ secrets.WEBHOOK_TOKEN }}
+        run: |
+          echo "WEBHOOK_URL=$(printf "%s" "$RAW_WEBHOOK_URL" | tr -d '\r\n')" >> $GITHUB_ENV
+          echo "WEBHOOK_TOKEN=$(printf "%s" "$RAW_WEBHOOK_TOKEN" | tr -d '\r\n')" >> $GITHUB_ENV
+
+      - name: Notify webhook (optional)
+        env:
+          WEBHOOK_URL: ${{ env.WEBHOOK_URL }}
+          WEBHOOK_TOKEN: ${{ env.WEBHOOK_TOKEN }}
+        run: python -m src.notify_webhook
+
+      # ---- Artifacts (for manual download/debug) ----
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
