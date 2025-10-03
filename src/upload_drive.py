@@ -1,5 +1,6 @@
 # src/upload_drive.py
-import os, json
+import os
+import json
 from pathlib import Path
 from typing import Optional
 
@@ -8,24 +9,30 @@ from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
 SCOPES = ["https://www.googleapis.com/auth/drive"]
-
 PARENT_FOLDER_ID = os.environ.get("GOOGLE_DRIVE_FOLDER_ID", "").strip()
 SA_JSON = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip()
+
 
 def drive_service():
     if not SA_JSON:
         raise RuntimeError("GOOGLE_SERVICE_ACCOUNT_JSON is not set")
     info = json.loads(SA_JSON)
     creds = service_account.Credentials.from_service_account_info(info, scopes=SCOPES)
+    # cache_discovery=False avoids warnings in GHA runners
     return build("drive", "v3", credentials=creds, cache_discovery=False)
 
-def find_or_create_folder(svc, name: str, parent_id: str) -> str:
-    # Look for existing child folder with this name under the parent
+
+def _find_or_create_folder(svc, name: str, parent_id: str) -> str:
+    """
+    Finds (under parent_id) a folder with `name`, or creates it, and returns its id.
+    Avoids backslashes in f-strings by building query via string concatenation.
+    """
+    safe_name = name.replace("'", "\\'")
     q = (
-        f"mimeType='application/vnd.google-apps.folder' "
-        f"and name='{name.replace(\"'\",\"\\'\")}' "
-        f"and '{parent_id}' in parents "
-        f"and trashed = false"
+        "mimeType='application/vnd.google-apps.folder' "
+        "and name='" + safe_name + "' "
+        "and '" + parent_id + "' in parents "
+        "and trashed = false"
     )
     resp = svc.files().list(
         q=q,
@@ -51,14 +58,16 @@ def find_or_create_folder(svc, name: str, parent_id: str) -> str:
     ).execute()
     return folder["id"]
 
-def set_anyone_reader(svc, file_id: str) -> None:
+
+def _set_anyone_reader(svc, file_id: str) -> None:
     svc.permissions().create(
         fileId=file_id,
         body={"type": "anyone", "role": "reader"},
         supportsAllDrives=True,
     ).execute()
 
-def upload_file(svc, parent_id: str, path: Path, mimetype: str) -> str:
+
+def _upload_file(svc, parent_id: str, path: Path, mimetype: str) -> str:
     file_meta = {"name": path.name, "parents": [parent_id]}
     media = MediaFileUpload(path.as_posix(), mimetype=mimetype, resumable=False)
     created = svc.files().create(
@@ -68,8 +77,9 @@ def upload_file(svc, parent_id: str, path: Path, mimetype: str) -> str:
         supportsAllDrives=True,
     ).execute()
     file_id = created["id"]
-    set_anyone_reader(svc, file_id)
+    _set_anyone_reader(svc, file_id)
     return file_id
+
 
 def main():
     if not PARENT_FOLDER_ID:
@@ -82,36 +92,38 @@ def main():
 
     svc = drive_service()
 
-    # Create/find week folder under the shared parent folder
-    week_folder_name = out_dir.name  # keep same (e.g., 2025-W39)
-    weekly_folder_id = find_or_create_folder(svc, week_folder_name, PARENT_FOLDER_ID)
+    # Create/find the week folder under the shared parent
+    week_folder_name = out_dir.name  # keep folder name = "YYYY-WNN"
+    weekly_folder_id = _find_or_create_folder(svc, week_folder_name, PARENT_FOLDER_ID)
 
     # Find generated files
     md_file: Optional[Path] = next(iter(out_dir.glob("*.md")), None)
     pdf_file: Optional[Path] = next(iter(out_dir.glob("*.pdf")), None)
-
     if not md_file and not pdf_file:
         raise RuntimeError(f"No .md or .pdf files found in {out_dir}")
 
     links = {}
 
     if pdf_file:
-        pdf_id = upload_file(svc, weekly_folder_id, pdf_file, "application/pdf")
-        links["pdf_url"] = f"https://drive.google.com/uc?id={pdf_id}"
+        pdf_id = _upload_file(svc, weekly_folder_id, pdf_file, "application/pdf")
+        links["pdf_url"] = "https://drive.google.com/uc?id=" + pdf_id
 
     if md_file:
-        md_id = upload_file(svc, weekly_folder_id, md_file, "text/markdown")
-        links["md_url"] = f"https://drive.google.com/uc?id={md_id}"
+        md_id = _upload_file(svc, weekly_folder_id, md_file, "text/markdown")
+        links["md_url"] = "https://drive.google.com/uc?id=" + md_id
 
     # Also store the week folder link as a fallback
-    links["folder_url"] = f"https://drive.google.com/drive/folders/{weekly_folder_id}"
+    links["folder_url"] = "https://drive.google.com/drive/folders/" + weekly_folder_id
 
-    # Write links for later steps
-    (out_dir / "drive_links.json").write_text(json.dumps(links, ensure_ascii=False, indent=2), encoding="utf-8")
+    # Persist for later steps (Notion + email)
+    (out_dir / "drive_links.json").write_text(
+        json.dumps(links, ensure_ascii=False, indent=2), encoding="utf-8"
+    )
 
     print("Uploaded to Drive:")
     for k, v in links.items():
-        print(f"  {k}: {v}")
+        print("  ", k, ":", v)
+
 
 if __name__ == "__main__":
     main()
