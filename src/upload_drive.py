@@ -61,5 +61,20 @@ def main():
 
     print(f"[OK] Uploaded to Shared Drive {week_name}. Links -> MD: {md_url} | PDF: {pdf_url}")
 
+    service.permissions().create(
+    fileId=file_id,
+    body={"type": "anyone", "role": "reader"},
+).execute()
+
+# build direct links
+pdf_url = f"https://drive.google.com/uc?id={pdf_id}"
+md_url  = f"https://drive.google.com/uc?id={md_id}"
+
+# also store the week folder link as fallback
+folder_url = f"https://drive.google.com/drive/folders/{weekly_folder_id}"
+json.dump({"pdf_url": pdf_url, "md_url": md_url, "folder_url": folder_url},
+          (out_dir / "drive_links.json").open("w", encoding="utf-8"))
+
+
 if __name__ == "__main__":
     main()
