@@ -102,7 +102,7 @@ def main():
     if not md_file and not pdf_file:
         raise RuntimeError(f"No .md or .pdf files found in {out_dir}")
 
-    links = {}
+    links = {?utm_source=email&utm_medium=members&utm_campaign=week{{week}}-{{year}}}
 
     if pdf_file:
         pdf_id = _upload_file(svc, weekly_folder_id, pdf_file, "application/pdf")
