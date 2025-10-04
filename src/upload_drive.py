@@ -1,3 +1,6 @@
+from pathlib import Path
+import json
+
 # out is your latest output folder, e.g. "2025-W40"
 out = sorted(Path("output").glob("*"))[-1]
 
