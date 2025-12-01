@@ -21,15 +21,16 @@ def build_links(out_dir: Path) -> dict:
 def get_db_schema(notion: Client, db_id: str):
     return notion.databases.retrieve(db_id)
 
-# 🔥 NEW SAFE VERSION — WON’T FAIL IF "title" TYPE IS MISSING
+# ---------- TITLE PROPERTY DETECTION (NEW SAFE VERSION) ----------
 def find_title_prop_name(db_schema: dict) -> str:
     """
     Try to find the Notion title property with fallbacks:
       1. Find property with type='title'
-      2. If not found, fallback to column named 'Name'
-      3. If not found, fallback to first property
+      2. If not found, just assume column is named 'Name'
+    We also print out the available properties for debugging.
     """
     props = db_schema.get("properties", {})
+    print(f"[notion] Available properties: {list(props.keys())}")
 
     # Normal case — real Notion title property
     for prop_name, prop in props.items():
@@ -37,23 +38,19 @@ def find_title_prop_name(db_schema: dict) -> str:
             print(f"[notion] Found real title property: '{prop_name}'")
             return prop_name
 
-    # Fallback 1 — Notion default often called "Name"
-    if "Name" in props:
-        print("[notion][WARN] No title-type property; using 'Name'.")
-        return "Name"
-
-    # Fallback 2 — use first property
-    if props:
-        first = next(iter(props.keys()))
-        print(f"[notion][WARN] No title-type property; using first property: '{first}'")
-        return first
-
-    raise RuntimeError("Database has no properties at all — cannot determine title.")
+    # Fallback — assume default 'Name' column
+    print("[notion][WARN] No 'title'-type property found. "
+          "Falling back to property name 'Name'.")
+    return "Name"
+# -----------------------------------------------------------------
 
 def main():
     notion = Client(auth=os.environ["NOTION_API_KEY"])
     db_id  = os.environ["NOTION_DATABASE_ID"]
     hub_id = os.environ["NOTION_MEMBERS_PAGE_ID"]
+
+    print(f"[env] NOTION_DATABASE_ID={db_id}")
+    print(f"[env] NOTION_MEMBERS_PAGE_ID={hub_id}")
 
     # --- outputs & meta
     out_dir = latest_out_dir()
@@ -75,10 +72,11 @@ def main():
 
     # --- Notion database schema
     db_schema = get_db_schema(notion, db_id)
+    print(f"[notion] Retrieved database: {db_schema.get('title')}")
     title_prop = find_title_prop_name(db_schema)
     print(f"[notion] Using title property: '{title_prop}'")
 
-    # --- 1) Create page (minimal valid create)
+    # --- 1) Create page in database
     page = notion.pages.create(
         parent={"database_id": db_id},
         properties={
