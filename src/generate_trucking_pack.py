@@ -1,8 +1,8 @@
 import json
-import generate_text
 from pathlib import Path
 from datetime import datetime
-from src.openai_utils 
+from src.openai_utils import generate_text
+
 # =========================
 # LOAD CLIENT PROFILE
 # =========================
@@ -22,42 +22,113 @@ output_dir = Path(f"output/{week_label}/{client['client_id']}")
 output_dir.mkdir(parents=True, exist_ok=True)
 
 # =========================
-# CONTENT SECTIONS
+# AI GENERATED CONTENT
 # =========================
 
-recruiting_posts = f"""
-1. Looking for experienced CDL-A drivers who want steady freight and weekly home time? Join {client['company_name']} and drive with a team that respects your time on the road.
+recruiting_prompt = f"""
+Create 5 realistic recruiting posts for a small trucking company.
 
-2. At {client['company_name']}, we keep drivers moving with consistent regional freight and reliable dispatch communication.
+Company Name:
+{client['company_name']}
 
-3. Tired of feeling like just another truck number? We're hiring CDL-A regional drivers who want professionalism and steady work.
+Region:
+{client['region']}
 
-4. Drive newer equipment, run consistent lanes, and get home weekly with {client['company_name']}.
+Hiring For:
+{client['hiring_for']}
 
-5. Join a fleet focused on steady miles, paid detention, and driver communication that actually matters.
+Benefits:
+{', '.join(client['benefits'])}
+
+Target Driver:
+{client['target_driver']}
+
+Tone:
+{client['tone']}
+
+Requirements:
+- Sound realistic
+- Avoid corporate fluff
+- Avoid emojis
+- Avoid hashtags
+- Make the posts feel authentic to trucking culture
+- Separate each post clearly
 """
 
-social_posts = f"""
-1. Safety, communication, and consistency — that's how we operate at {client['company_name']}.
+social_prompt = f"""
+Create 3 realistic social media posts for a trucking company.
 
-2. Regional freight doesn't have to mean chaos. We focus on steady work and reliable routes.
+Company Name:
+{client['company_name']}
 
-3. Good drivers deserve good communication. That's the standard at {client['company_name']}.
+Region:
+{client['region']}
+
+Tone:
+{client['tone']}
+
+Requirements:
+- Sound authentic
+- Professional but human
+- No hashtags
+- No emojis
+- Focus on trucking culture, safety, consistency, professionalism
 """
 
-safety_reminders = """
-1. Wet spring conditions across the Pacific Northwest mean increased stopping distance. Slow down and leave room.
+safety_prompt = f"""
+Create 2 trucking safety reminders for drivers operating in the Pacific Northwest.
 
-2. Always verify trailer lights and tire conditions before departure, especially during heavy rain conditions.
+Requirements:
+- Practical
+- Realistic
+- Short
+- Professional
 """
 
-company_update = """
-Freight volume remained steady this week across our regional lanes. We appreciate the hard work from all drivers continuing to deliver safely and professionally.
+company_update_prompt = f"""
+Write a short weekly company update/newsletter for a trucking company.
+
+Company Name:
+{client['company_name']}
+
+Tone:
+{client['tone']}
+
+Requirements:
+- Professional
+- Appreciative toward drivers
+- Mention freight conditions
+- Keep concise
 """
 
-freight_digest = """
-Diesel prices remained relatively stable this week while regional freight demand across the Pacific Northwest continues to hold steady.
+freight_digest_prompt = f"""
+Write a short freight and trucking industry digest for a small regional carrier operating in the Pacific Northwest.
+
+Requirements:
+- Mention freight trends
+- Mention diesel/fuel conditions
+- Mention weather/logistics concerns if relevant
+- Keep concise
 """
+
+# =========================
+# GENERATE CONTENT
+# =========================
+
+print("Generating recruiting posts...")
+recruiting_posts = generate_text(recruiting_prompt)
+
+print("Generating social posts...")
+social_posts = generate_text(social_prompt)
+
+print("Generating safety reminders...")
+safety_reminders = generate_text(safety_prompt)
+
+print("Generating company update...")
+company_update = generate_text(company_update_prompt)
+
+print("Generating freight digest...")
+freight_digest = generate_text(freight_digest_prompt)
 
 # =========================
 # BUILD FULL PACK
@@ -124,7 +195,7 @@ full_pack = f"""
 """
 
 # =========================
-# SAVE INDIVIDUAL FILES
+# SAVE FILES
 # =========================
 
 files = {
@@ -141,8 +212,8 @@ for filename, content in files.items():
         f.write(content)
 
 # =========================
-# SUCCESS MESSAGE
+# SUCCESS
 # =========================
 
-print(f"\nPack generated successfully.")
+print("\nPack generated successfully.")
 print(f"Output directory: {output_dir}")
