@@ -1,38 +1,29 @@
-import os
 from openai import OpenAI
+import os
 
+client = OpenAI(
+    api_key=os.environ.get("OPENAI_API_KEY")
+)
 
-def get_openai_client() -> OpenAI:
-    api_key = os.getenv("OPENAI_API_KEY")
-
-    if not api_key:
-        raise RuntimeError(
-            "OPENAI_API_KEY is missing. Set it before running AI generation."
-        )
-
-    return OpenAI(api_key=api_key)
-
-
-def generate_text(prompt: str, model: str = "gpt-4o-mini") -> str:
-    client = get_openai_client()
+def generate_text(prompt):
 
     response = client.chat.completions.create(
-        model=model,
+        model="gpt-5-mini",
         messages=[
             {
                 "role": "system",
                 "content": (
-                    "You are a practical trucking business content assistant. "
-                    "Write clear, useful, driver-friendly content for small trucking companies. "
-                    "Avoid corporate fluff. Keep the tone professional, direct, and usable."
-                ),
+                    "You are a professional trucking industry content writer. "
+                    "Write practical, realistic, professional content for small trucking companies. "
+                    "Avoid corporate fluff and exaggerated marketing language."
+                )
             },
             {
                 "role": "user",
-                "content": prompt,
-            },
+                "content": prompt
+            }
         ],
-        temperature=0.7,
+        temperature=0.8
     )
 
-    return response.choices[0].message.content.strip()
+    return response.choices[0].message.content
