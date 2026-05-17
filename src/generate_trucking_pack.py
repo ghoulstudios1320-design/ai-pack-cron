@@ -1,7 +1,8 @@
 import json
+import generate_text
 from pathlib import Path
 from datetime import datetime
-
+from src.openai_utils 
 # =========================
 # LOAD CLIENT PROFILE
 # =========================
