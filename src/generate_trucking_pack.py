@@ -377,73 +377,222 @@ Requirements:
     # PDF GENERATION
     # ==========================================
 
-    pdf_path = output_dir / "full_pack.pdf"
+   # ==========================================
+# PDF GENERATION
+# ==========================================
 
-    doc = SimpleDocTemplate(
-        str(pdf_path),
-        pagesize=letter,
-        rightMargin=40,
-        leftMargin=40,
-        topMargin=40,
-        bottomMargin=40,
+from reportlab.lib import colors
+from reportlab.platypus import HRFlowable
+from reportlab.platypus.flowables import PageBreak
+from reportlab.lib.styles import ParagraphStyle
+from reportlab.pdfbase.pdfmetrics import stringWidth
+
+
+pdf_path = output_dir / "full_pack.pdf"
+
+
+# ==========================================
+# PAGE FOOTER
+# ==========================================
+
+def add_page_number(canvas, doc):
+
+    canvas.saveState()
+
+    footer_text = (
+        f"{company_name} | Week {week_label} | "
+        f"Page {doc.page}"
     )
 
-    styles = getSampleStyleSheet()
+    canvas.setFont("Helvetica", 9)
 
-    story = []
+    canvas.setFillColor(colors.grey)
 
-    sections = full_pack.split("\n---\n")
+    canvas.drawRightString(
+        560,
+        20,
+        footer_text
+    )
 
-    for section in sections:
+    canvas.restoreState()
 
-        block = []
 
-        for line in section.splitlines():
+# ==========================================
+# DOCUMENT
+# ==========================================
 
-            line = line.strip()
+doc = SimpleDocTemplate(
+    str(pdf_path),
+    pagesize=letter,
+    rightMargin=45,
+    leftMargin=45,
+    topMargin=50,
+    bottomMargin=40,
+)
 
-            if not line:
-                block.append(Spacer(1, 8))
-                continue
+styles = getSampleStyleSheet()
 
-            if line.startswith("# "):
+title_style = ParagraphStyle(
+    "CustomTitle",
+    parent=styles["Title"],
+    fontSize=26,
+    leading=30,
+    spaceAfter=24,
+)
 
-                block.append(
-                    Paragraph(
-                        line.replace("# ", ""),
-                        styles["Title"]
-                    )
+section_style = ParagraphStyle(
+    "SectionHeader",
+    parent=styles["Heading1"],
+    fontSize=18,
+    leading=22,
+    textColor=colors.HexColor("#1f2937"),
+    spaceBefore=20,
+    spaceAfter=12,
+)
+
+body_style = ParagraphStyle(
+    "BodyStyle",
+    parent=styles["BodyText"],
+    fontSize=10.5,
+    leading=16,
+    spaceAfter=8,
+)
+
+small_header_style = ParagraphStyle(
+    "SmallHeader",
+    parent=styles["Heading2"],
+    fontSize=13,
+    leading=18,
+    textColor=colors.HexColor("#374151"),
+    spaceBefore=12,
+    spaceAfter=6,
+)
+
+story = []
+
+
+# ==========================================
+# COVER PAGE
+# ==========================================
+
+story.append(
+    Spacer(1, 100)
+)
+
+story.append(
+    Paragraph(
+        "Weekly Fleet Recruiting & Communication Pack",
+        title_style
+    )
+)
+
+story.append(
+    Spacer(1, 30)
+)
+
+cover_lines = [
+    f"<b>Client:</b> {company_name}",
+    f"<b>Fleet Size:</b> {client.get('fleet_size')}",
+    f"<b>Region:</b> {client.get('region')}",
+    f"<b>Equipment:</b> {client.get('equipment')}",
+    f"<b>Hiring For:</b> {client.get('hiring_for')}",
+    f"<b>Week:</b> {week_label}",
+]
+
+for line in cover_lines:
+
+    story.append(
+        Paragraph(
+            line,
+            small_header_style
+        )
+    )
+
+story.append(
+    Spacer(1, 40)
+)
+
+story.append(
+    HRFlowable(
+        width="100%",
+        thickness=1,
+        color=colors.HexColor("#9ca3af"),
+    )
+)
+
+story.append(PageBreak())
+
+
+# ==========================================
+# MAIN CONTENT
+# ==========================================
+
+sections = full_pack.split("\n---\n")
+
+for section in sections:
+
+    block = []
+
+    for line in section.splitlines():
+
+        line = line.strip()
+
+        if not line:
+            block.append(Spacer(1, 10))
+            continue
+
+        if line.startswith("# "):
+
+            block.append(
+                Paragraph(
+                    line.replace("# ", ""),
+                    section_style
                 )
+            )
 
-                block.append(Spacer(1, 12))
-
-            elif line.startswith("## "):
-
-                block.append(
-                    Paragraph(
-                        line.replace("## ", ""),
-                        styles["Heading2"]
-                    )
+            block.append(
+                HRFlowable(
+                    width="100%",
+                    thickness=0.8,
+                    color=colors.HexColor("#d1d5db"),
                 )
+            )
 
-                block.append(Spacer(1, 8))
+            block.append(Spacer(1, 12))
 
-            else:
+        elif line.startswith("## "):
 
-                block.append(
-                    Paragraph(
-                        line,
-                        styles["BodyText"]
-                    )
+            block.append(
+                Paragraph(
+                    line.replace("## ", ""),
+                    small_header_style
                 )
+            )
 
-                block.append(Spacer(1, 6))
+            block.append(Spacer(1, 6))
 
-        story.append(KeepTogether(block))
-        story.append(PageBreak())
+        else:
 
-    if story:
-        story.pop()
+            block.append(
+                Paragraph(
+                    line,
+                    body_style
+                )
+            )
+
+    story.append(
+        KeepTogether(block)
+    )
+
+    story.append(
+        Spacer(1, 18)
+    )
+
+doc.build(
+    story,
+    onFirstPage=add_page_number,
+    onLaterPages=add_page_number,
+)
 
     doc.build(story)
 
