@@ -44,6 +44,9 @@ jobs:
       - name: Simulate failure and retry state
         run: python -m src.simulate_failure_retry
 
+      - name: Simulate retry recovery
+        run: python -m src.simulate_retry_recovery
+
       - name: Upload output artifact
         uses: actions/upload-artifact@v4
         with:
