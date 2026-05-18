@@ -57,6 +57,17 @@ jobs:
           WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
         run: python -m src.send_webhook_notifications
 
+      - name: Send email notifications
+        env:
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_FROM_EMAIL: ${{ secrets.SMTP_FROM_EMAIL }}
+          SMTP_FROM_NAME: ${{ secrets.SMTP_FROM_NAME }}
+          PACK_EMAIL_TO: ${{ secrets.PACK_EMAIL_TO }}
+        run: python -m src.send_email_notifications
+
       - name: Simulate failure retry
         run: python -m src.simulate_failure_retry
 
