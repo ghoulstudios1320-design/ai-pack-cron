@@ -1,4 +1,3 @@
-import json
 import re
 from pathlib import Path
 from typing import Dict, List, Tuple
@@ -59,12 +58,22 @@ FILES_TO_SCAN = [
 ]
 
 
+SKIP_DIR_NAMES = {
+    "_packages",
+    "__pycache__",
+}
+
+
 def get_latest_week_dir() -> Path:
     if not OUTPUT_DIR.exists():
         raise RuntimeError(f"Missing output directory: {OUTPUT_DIR}")
 
     week_dirs = sorted(
-        [path for path in OUTPUT_DIR.iterdir() if path.is_dir() and re.match(r"^\d{4}-W\d{2}$", path.name)]
+        [
+            path
+            for path in OUTPUT_DIR.iterdir()
+            if path.is_dir() and re.match(r"^\d{4}-W\d{2}$", path.name)
+        ]
     )
 
     if not week_dirs:
@@ -73,13 +82,24 @@ def get_latest_week_dir() -> Path:
     return week_dirs[-1]
 
 
-def load_master_index(week_dir: Path) -> Dict:
-    master_index_path = week_dir / "master_index.json"
+def discover_client_dirs(week_dir: Path) -> List[Path]:
+    client_dirs = []
 
-    if not master_index_path.exists():
-        raise RuntimeError(f"Missing master index: {master_index_path}")
+    for path in sorted(week_dir.iterdir()):
+        if not path.is_dir():
+            continue
 
-    return json.loads(master_index_path.read_text(encoding="utf-8"))
+        if path.name in SKIP_DIR_NAMES:
+            continue
+
+        # A real generated client folder should have at least one of these.
+        if (path / "meta.json").exists() or (path / "full_pack.md").exists():
+            client_dirs.append(path)
+
+    if not client_dirs:
+        raise RuntimeError(f"No generated client folders found in: {week_dir}")
+
+    return client_dirs
 
 
 def scan_text(text: str) -> List[Tuple[str, str]]:
@@ -112,34 +132,18 @@ def validate_file(path: Path) -> List[str]:
 
 def main() -> None:
     week_dir = get_latest_week_dir()
-    master_index = load_master_index(week_dir)
-
-    clients = master_index.get("clients", [])
-
-    if not clients:
-        raise RuntimeError(f"No clients found in master index: {week_dir / 'master_index.json'}")
+    client_dirs = discover_client_dirs(week_dir)
 
     errors: List[str] = []
 
-    for client in clients:
-        client_folder = client.get("client_folder")
-
-        if not client_folder:
-            errors.append(f"Client entry missing client_folder: {client}")
-            continue
-
-        client_dir = week_dir / client_folder
-
-        if not client_dir.exists():
-            errors.append(f"Missing client output folder: {client_dir}")
-            continue
-
+    for client_dir in client_dirs:
         for filename in FILES_TO_SCAN:
             errors.extend(validate_file(client_dir / filename))
 
     if errors:
         print("CONTENT QUALITY CHECK FAILED")
         print(f"Week: {week_dir.name}")
+        print(f"Client folders checked: {len(client_dirs)}")
         print(f"Errors found: {len(errors)}")
 
         for error in errors:
@@ -149,7 +153,7 @@ def main() -> None:
 
     print("CONTENT QUALITY CHECK PASSED")
     print(f"Week: {week_dir.name}")
-    print(f"Clients checked: {len(clients)}")
+    print(f"Client folders checked: {len(client_dirs)}")
     print(f"Files checked per client: {len(FILES_TO_SCAN)}")
 
 
