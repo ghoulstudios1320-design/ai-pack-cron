@@ -30,8 +30,10 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: python -m src.generate_trucking_pack
+
       - name: Validate content quality
         run: python -m src.validate_content_quality
+
       - name: Package trucking outputs
         run: python -m src.package_trucking_outputs
 
@@ -67,11 +69,11 @@ jobs:
       - name: Validate pipeline health
         run: python -m src.validate_pipeline_health
 
+      - name: Write production summary
+        run: python -m src.write_production_summary
+
       - name: Upload output artifact
         uses: actions/upload-artifact@v4
         with:
           name: trucking-pack-output
           path: output/
-
-      - name: Write production summary
-        run: python -m src.write_production_summary
