@@ -1,1 +1,48 @@
-
+{
+  "client_id": "iron_mile_freight",
+  "company_name": "Iron Mile Freight",
+  "fleet_size": "42 trucks",
+  "region": "Midwest",
+  "primary_states": ["Illinois", "Indiana", "Ohio", "Michigan", "Wisconsin"],
+  "home_base": "Joliet, Illinois",
+  "equipment": "dry van",
+  "operation_type": "regional dry van freight",
+  "hiring_for": "CDL-A regional dry van drivers",
+  "target_driver": "experienced CDL-A drivers who want steady regional lanes, consistent dispatch, and practical home time",
+  "experience_required": "1 year CDL-A experience preferred",
+  "home_time": "home most weekends with some midweek resets depending on freight",
+  "pay_angle": "steady regional miles, detention support, predictable freight, and practical dispatch communication",
+  "benefits": [
+    "consistent Midwest regional lanes",
+    "late-model tractors",
+    "paid detention when properly documented",
+    "weekend home-time focus",
+    "direct dispatch communication",
+    "no-nonsense operating expectations"
+  ],
+  "common_lanes": [
+    "Chicago to Indianapolis",
+    "Joliet to Columbus",
+    "Detroit metro regional freight",
+    "Milwaukee and southern Wisconsin turns",
+    "Ohio Valley dry van lanes"
+  ],
+  "pain_points": [
+    "tight warehouse appointments",
+    "Chicago-area congestion",
+    "winter weather across the Great Lakes",
+    "detention at distribution centers",
+    "limited overnight parking near major warehouses"
+  ],
+  "tone": "straightforward, professional, driver-respectful, no hype",
+  "contact_email": "recruiting@ironmilefreight.com",
+  "contact_phone": "815-555-0188",
+  "website": "ironmilefreight.com/drivers",
+  "tagline": "Steady Midwest freight. Straight answers. Real dispatch.",
+  "brand": {
+    "primary_color": "#1F2937",
+    "secondary_color": "#D97706",
+    "accent_color": "#F59E0B",
+    "footer_color": "#111827"
+  }
+}
