@@ -79,16 +79,51 @@ def clean_common_typos(text):
         "time–stamped": "time-stamped",
         "check–ins": "check-ins",
         "II-90": "I-90",
-        "↔": "to/from",
-        "→": "to",
-        "⇄": "to/from",
+
+        # Route arrow cleanup
+        "↔": " to/from ",
+        "→": " to ",
+        "⇄": " to/from ",
+
+        # Dash cleanup
         "—": "-",
         "–": "-",
         "•": "-",
+
+        # Common bad joins
+        "Portlandto/fromSeattle": "Portland to/from Seattle",
+        "Portlandto/fromNorCal": "Portland to/from Northern California",
+        "Portlandto/fromNorthern California": "Portland to/from Northern California",
+        "Seattleto/fromPortland": "Seattle to/from Portland",
+        "Portland-Seattle": "Portland-Seattle",
+        "load- handling": "load handling",
+        "fuel-reefer": "fuel - reefer",
+        "conditions-reduce": "conditions - reduce",
+        "storage-if": "storage - if",
+        "freight-Portland": "freight - Portland",
+        "season-extra": "season - extra",
+        "common-same": "common - same",
+        "detention-which": "detention - which",
+        "temp plus": "temperature plus",
+        "reefing experience": "reefer experience",
+        "pretrip": "pre-trip",
+        "posttrip": "post-trip",
     }
 
     for bad, good in replacements.items():
         text = text.replace(bad, good)
+
+    # Add spacing around to/from when it gets jammed into words
+    text = re.sub(r"([a-zA-Z])to/from([A-Z])", r"\1 to/from \2", text)
+
+    # Add spacing around hyphen when it accidentally joins clauses
+    text = re.sub(r"([a-z])-(if|when|which|but|expect|bring|call|dont|don't)", r"\1 - \2", text)
+
+    # Fix double/messy spaces
+    text = re.sub(r"[ \t]+", " ", text)
+
+    # Remove spaces before punctuation
+    text = re.sub(r"\s+([,.!?;:])", r"\1", text)
 
     text = remove_emojis(text)
 
