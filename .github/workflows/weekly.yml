@@ -29,6 +29,9 @@ jobs:
       - name: Package trucking outputs
         run: python -m src.package_trucking_outputs
 
+      - name: Build distribution manifest
+        run: python -m src.build_distribution_manifest
+
       - name: Upload output artifact
         uses: actions/upload-artifact@v4
         with:
