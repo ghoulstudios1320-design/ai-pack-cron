@@ -785,19 +785,21 @@ def build_pdf(client: Dict[str, Any], out_dir: Path, week_key: str, sections: Di
     story.append(meta_table)
     story.append(Spacer(1, 24))
 
-    story.append(
-        HRFlowable(
-            width="100%",
-            thickness=3,
-            color=accent_color,
-            spaceBefore=12,
-            spaceAfter=16,
-        )
+   story.append(
+    HRFlowable(
+        width="100%",
+        thickness=3,
+        color=accent_color,
+        spaceBefore=12,
+        spaceAfter=16,
     )
+)
 
-    # Important: no extra title-only second page.
-    # We go straight into content.
-    ordered_sections = [
+# Keep the cover as a real standalone page.
+# Page 2 starts directly with Recruiting Posts.
+story.append(PageBreak())
+
+ordered_sections = [
         sections["recruiting_posts"],
         sections["social_posts"],
         sections["safety_reminders"],
