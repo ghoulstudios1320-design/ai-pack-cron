@@ -1,1 +1,49 @@
-
+{
+  "client_id": "inland_flatbed_logistics",
+  "company_name": "Inland Flatbed Logistics",
+  "fleet_size": "36 trucks",
+  "region": "Inland Northwest",
+  "primary_states": ["Washington", "Idaho", "Oregon", "Montana"],
+  "home_base": "Spokane Valley, Washington",
+  "equipment": "flatbed",
+  "operation_type": "regional flatbed and building-material freight",
+  "hiring_for": "CDL-A regional flatbed drivers",
+  "target_driver": "CDL-A drivers with securement experience who can handle regional flatbed freight, jobsite deliveries, and mountain-weather routing",
+  "experience_required": "2 years CDL-A experience preferred; flatbed securement experience strongly preferred",
+  "home_time": "home weekends with occasional overnight regional runs",
+  "pay_angle": "regional flatbed consistency, securement-focused dispatch, detention support, and practical routing",
+  "benefits": [
+    "regional Inland Northwest lanes",
+    "weekend home-time focus",
+    "securement training refreshers",
+    "paid detention when documented",
+    "well-maintained flatbed equipment",
+    "dispatch that understands jobsite timing"
+  ],
+  "common_lanes": [
+    "Spokane to Boise",
+    "Spokane to Missoula",
+    "Tri-Cities building-material runs",
+    "Eastern Washington jobsite deliveries",
+    "Northern Idaho and western Montana regional freight"
+  ],
+  "pain_points": [
+    "mountain pass weather",
+    "jobsite unloading delays",
+    "load securement checks",
+    "oversized or awkward freight handling",
+    "limited parking near construction sites",
+    "winter chain requirements"
+  ],
+  "tone": "practical, safety-focused, direct, experienced-driver friendly",
+  "contact_email": "drivers@inlandflatbedlogistics.com",
+  "contact_phone": "509-555-0144",
+  "website": "inlandflatbedlogistics.com/careers",
+  "tagline": "Flatbed freight built for the Inland Northwest.",
+  "brand": {
+    "primary_color": "#374151",
+    "secondary_color": "#15803D",
+    "accent_color": "#22C55E",
+    "footer_color": "#14532D"
+  }
+}
