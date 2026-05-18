@@ -1,1 +1,39 @@
-
+{
+  "client_id": "cascade_cold_chain",
+  "company_name": "Cascade Cold Chain",
+  "fleet_size": "28 trucks",
+  "region": "Pacific Northwest",
+  "primary_states": ["Washington", "Oregon", "Idaho", "Northern California"],
+  "home_base": "Portland, OR",
+  "equipment": "refrigerated van",
+  "operation_type": "regional refrigerated freight",
+  "hiring_for": "CDL-A reefer drivers",
+  "target_driver": "experienced CDL-A drivers comfortable with refrigerated freight, appointment windows, and produce season pressure",
+  "experience_required": "2 years CDL-A experience preferred, reefer experience strongly preferred",
+  "home_time": "weekly home time depending on lane",
+  "pay_angle": "steady refrigerated freight with consistent regional lanes",
+  "benefits": [
+    "reefer freight consistency",
+    "paid detention",
+    "newer refrigerated trailers",
+    "dispatch that communicates appointment changes",
+    "regional produce and grocery lanes"
+  ],
+  "common_lanes": [
+    "Portland to Seattle",
+    "Yakima produce lanes",
+    "Portland to Northern California",
+    "I-5 grocery freight",
+    "Tri-Cities refrigerated freight"
+  ],
+  "pain_points": [
+    "tight appointment windows",
+    "detention at cold storage facilities",
+    "produce season volume swings",
+    "reefer unit inspections",
+    "driver recruiting"
+  ],
+  "tone": "practical, driver-respectful, professional, no corporate fluff",
+  "contact_email": "recruiting@cascadecoldchain.com",
+  "contact_phone": "503-555-0188"
+}
