@@ -1,4 +1,5 @@
 import json
+import re
 from pathlib import Path
 from datetime import datetime
 
@@ -8,6 +9,7 @@ from reportlab.lib.pagesizes import letter
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.lib.styles import getSampleStyleSheet
 
+
 CLIENTS_DIR = Path("clients")
 week_label = datetime.now().strftime("%Y-W%U")
 
@@ -16,6 +18,108 @@ def as_list_text(items):
     if isinstance(items, list):
         return ", ".join(items)
     return str(items)
+
+
+def remove_emojis(text):
+    emoji_pattern = re.compile(
+        "["
+        "\U0001F600-\U0001F64F"
+        "\U0001F300-\U0001F5FF"
+        "\U0001F680-\U0001F6FF"
+        "\U0001F1E0-\U0001F1FF"
+        "\U00002700-\U000027BF"
+        "\U000024C2-\U0001F251"
+        "]+",
+        flags=re.UNICODE,
+    )
+    return emoji_pattern.sub("", text)
+
+
+def clean_common_typos(text):
+    replacements = {
+        "CDL-A": "CDL-A",
+        "CDL–A": "CDL-A",
+        "CDL—A": "CDL-A",
+        "dry-van": "dry-van",
+        "pre-trip": "pre-trip",
+        "post-trip": "post-trip",
+        "high-wind": "high-wind",
+        "short-term": "short-term",
+        "small-fleet": "small-fleet",
+        "safety-minded": "safety-minded",
+        "securement-focused": "securement-focused",
+        "hands-on": "hands-on",
+        "time-stamped": "time-stamped",
+        "timestamped": "time-stamped",
+        "check-ins": "check-ins",
+        "I-5": "I-5",
+        "I-84": "I-84",
+        "I-90": "I-90",
+        "II-90": "I-90",
+        "CDL/DRIVER": "CDL-A driver",
+        "DRIVER record": "driving record",
+        "NorCal": "Northern California",
+        "ballast of regional lanes": "base of regional lanes",
+    }
+
+    for bad, good in replacements.items():
+        text = text.replace(bad, good)
+
+    text = remove_emojis(text)
+    return text.strip()
+
+
+def clean_pdf_text(text):
+    text = clean_common_typos(text)
+
+    replacements = {
+        "—": "-",
+        "–": "-",
+        "-": "-",
+        "→": "to",
+        "↔": "to/from",
+        "⇄": "to/from",
+        "■": "-",
+        "“": '"',
+        "”": '"',
+        "‘": "'",
+        "’": "'",
+        "…": "...",
+        "±": "+/-",
+        "°": " degrees ",
+    }
+
+    for bad, good in replacements.items():
+        text = text.replace(bad, good)
+
+    return text.strip()
+
+
+def proofread_content(section_name, content):
+    prompt = f"""
+Proofread and clean the following trucking-company content.
+
+Section:
+{section_name}
+
+Content:
+{content}
+
+Rules:
+- Fix typos and awkward wording
+- Remove emojis
+- Remove hashtags
+- Keep the trucking tone practical and realistic
+- Do not add fake statistics
+- Do not make it sound corporate
+- Keep the original meaning
+- Preserve headings and post numbering where possible
+- Return only the cleaned content
+"""
+
+    cleaned = generate_text(prompt)
+    cleaned = clean_common_typos(cleaned)
+    return cleaned
 
 
 def generate_pack_for_client(client_path):
@@ -93,8 +197,8 @@ Tone:
 Requirements:
 - Write for real truck drivers, not office executives
 - Avoid corporate fluff
-- Avoid emojis
-- Avoid hashtags
+- Do not use emojis
+- Do not use hashtags
 - Make each post distinct
 - Include a realistic call to action
 """
@@ -130,8 +234,8 @@ Requirements:
 - Make the posts sound like they came from a small trucking company
 - Professional but human
 - Avoid corporate fluff
-- Avoid emojis
-- Avoid hashtags
+- Do not use emojis
+- Do not use hashtags
 - Focus on operational reality, drivers, safety, equipment, lanes, weather, or communication
 """
 
@@ -167,6 +271,8 @@ Requirements:
 - Specific to the equipment and region
 - Avoid generic safety slogans
 - Avoid corporate language
+- Do not use emojis
+- Do not use hashtags
 """
 
     company_update_prompt = f"""
@@ -205,6 +311,8 @@ Requirements:
 - Mention operational reminders relevant to this company
 - Keep concise
 - Avoid corporate fluff
+- Do not use emojis
+- Do not use hashtags
 """
 
     freight_digest_prompt = f"""
@@ -240,24 +348,41 @@ Requirements:
 - Mention weather/logistics concerns relevant to their lanes
 - Include practical operational tips
 - Do not invent exact prices or statistics
+- Do not use emojis
+- Do not use hashtags
 """
 
     print(f"\n=== Generating pack for {company_name} ===")
 
     print("Generating recruiting posts...")
-    recruiting_posts = generate_text(recruiting_prompt)
+    recruiting_posts = proofread_content(
+        "Recruiting Posts",
+        generate_text(recruiting_prompt)
+    )
 
     print("Generating social posts...")
-    social_posts = generate_text(social_prompt)
+    social_posts = proofread_content(
+        "Social Posts",
+        generate_text(social_prompt)
+    )
 
     print("Generating safety reminders...")
-    safety_reminders = generate_text(safety_prompt)
+    safety_reminders = proofread_content(
+        "Safety Reminders",
+        generate_text(safety_prompt)
+    )
 
     print("Generating company update...")
-    company_update = generate_text(company_update_prompt)
+    company_update = proofread_content(
+        "Company Update",
+        generate_text(company_update_prompt)
+    )
 
     print("Generating freight digest...")
-    freight_digest = generate_text(freight_digest_prompt)
+    freight_digest = proofread_content(
+        "Freight Digest",
+        generate_text(freight_digest_prompt)
+    )
 
     full_pack = f"""
 # Weekly Fleet Recruiting & Communication Pack
@@ -317,6 +442,8 @@ Requirements:
 {freight_digest}
 """
 
+    full_pack = clean_common_typos(full_pack)
+
     files = {
         "recruiting_posts.md": recruiting_posts,
         "social_posts.md": social_posts,
@@ -329,10 +456,6 @@ Requirements:
     for filename, content in files.items():
         with open(output_dir / filename, "w") as f:
             f.write(content)
-
-    # =========================
-    # PDF GENERATION
-    # =========================
 
     pdf_path = output_dir / "full_pack.pdf"
 
@@ -348,8 +471,10 @@ Requirements:
     styles = getSampleStyleSheet()
     story = []
 
-    for line in full_pack.splitlines():
-        line = line.strip()
+    pdf_pack = clean_pdf_text(full_pack)
+
+    for line in pdf_pack.splitlines():
+        line = clean_pdf_text(line)
 
         if not line:
             story.append(Spacer(1, 8))
