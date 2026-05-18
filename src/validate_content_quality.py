@@ -1,4 +1,6 @@
+import json
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Tuple
 
@@ -64,6 +66,10 @@ SKIP_DIR_NAMES = {
 }
 
 
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
 def get_latest_week_dir() -> Path:
     if not OUTPUT_DIR.exists():
         raise RuntimeError(f"Missing output directory: {OUTPUT_DIR}")
@@ -92,7 +98,6 @@ def discover_client_dirs(week_dir: Path) -> List[Path]:
         if path.name in SKIP_DIR_NAMES:
             continue
 
-        # A real generated client folder should have at least one of these.
         if (path / "meta.json").exists() or (path / "full_pack.md").exists():
             client_dirs.append(path)
 
@@ -113,41 +118,108 @@ def scan_text(text: str) -> List[Tuple[str, str]]:
     return findings
 
 
-def validate_file(path: Path) -> List[str]:
+def validate_file(path: Path) -> Dict:
+    record = {
+        "file": str(path.relative_to(ROOT_DIR)),
+        "exists": path.exists(),
+        "passed": True,
+        "matches": [],
+    }
+
     if not path.exists():
-        return [f"Missing expected content file: {path}"]
+        record["passed"] = False
+        record["matches"].append(
+            {
+                "category": "missing_file",
+                "pattern": None,
+                "message": "Missing expected content file.",
+            }
+        )
+        return record
 
     text = path.read_text(encoding="utf-8", errors="replace")
     findings = scan_text(text)
 
-    errors = []
+    if findings:
+        record["passed"] = False
 
     for category, pattern in findings:
-        errors.append(
-            f"{path}: matched banned content category '{category}' with pattern '{pattern}'"
+        record["matches"].append(
+            {
+                "category": category,
+                "pattern": pattern,
+                "message": f"Matched banned content category '{category}' with pattern '{pattern}'.",
+            }
         )
 
-    return errors
+    return record
+
+
+def write_report(week_dir: Path, report: Dict) -> Path:
+    report_path = week_dir / "content_quality_report.json"
+    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    return report_path
 
 
 def main() -> None:
     week_dir = get_latest_week_dir()
     client_dirs = discover_client_dirs(week_dir)
 
-    errors: List[str] = []
+    report = {
+        "week": week_dir.name,
+        "checked_at": now_iso(),
+        "status": "passed",
+        "client_count": len(client_dirs),
+        "files_checked_per_client": len(FILES_TO_SCAN),
+        "banned_pattern_categories": list(BANNED_PATTERNS.keys()),
+        "clients": [],
+        "error_count": 0,
+    }
+
+    error_count = 0
 
     for client_dir in client_dirs:
-        for filename in FILES_TO_SCAN:
-            errors.extend(validate_file(client_dir / filename))
+        client_record = {
+            "client_folder": client_dir.name,
+            "status": "passed",
+            "files": [],
+        }
 
-    if errors:
+        for filename in FILES_TO_SCAN:
+            file_record = validate_file(client_dir / filename)
+            client_record["files"].append(file_record)
+
+            if not file_record["passed"]:
+                client_record["status"] = "failed"
+                error_count += len(file_record["matches"])
+
+        report["clients"].append(client_record)
+
+    report["error_count"] = error_count
+
+    if error_count:
+        report["status"] = "failed"
+
+    report_path = write_report(week_dir, report)
+
+    if error_count:
         print("CONTENT QUALITY CHECK FAILED")
         print(f"Week: {week_dir.name}")
         print(f"Client folders checked: {len(client_dirs)}")
-        print(f"Errors found: {len(errors)}")
+        print(f"Files checked per client: {len(FILES_TO_SCAN)}")
+        print(f"Errors found: {error_count}")
+        print(f"Report written: {report_path}")
 
-        for error in errors:
-            print(f"- {error}")
+        for client_record in report["clients"]:
+            for file_record in client_record["files"]:
+                if file_record["passed"]:
+                    continue
+
+                for match in file_record["matches"]:
+                    print(
+                        f"- {file_record['file']}: "
+                        f"{match['category']} | {match['pattern']} | {match['message']}"
+                    )
 
         raise SystemExit(1)
 
@@ -155,6 +227,7 @@ def main() -> None:
     print(f"Week: {week_dir.name}")
     print(f"Client folders checked: {len(client_dirs)}")
     print(f"Files checked per client: {len(FILES_TO_SCAN)}")
+    print(f"Report written: {report_path}")
 
 
 if __name__ == "__main__":
