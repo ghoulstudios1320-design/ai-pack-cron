@@ -38,8 +38,11 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
 
-      - name: Simulate Notion publish
-        run: python -m src.simulate_notion_publish
+      - name: Publish to Notion
+        run: python -m src.publish_to_notion
+        env:
+          NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
+          NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
 
       - name: Send webhook notifications
         run: python -m src.send_webhook_notifications
