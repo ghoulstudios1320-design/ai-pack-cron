@@ -1,12 +1,21 @@
 import json
 import re
+import unicodedata
+
 from pathlib import Path
 from datetime import datetime
 
 from src.openai_utils import generate_text
 
 from reportlab.lib.pagesizes import letter
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.platypus import (
+    SimpleDocTemplate,
+    Paragraph,
+    Spacer,
+    PageBreak,
+    KeepTogether,
+)
+
 from reportlab.lib.styles import getSampleStyleSheet
 
 
@@ -20,6 +29,10 @@ def as_list_text(items):
     return str(items)
 
 
+# ==========================================
+# REMOVE EMOJIS
+# ==========================================
+
 def remove_emojis(text):
     emoji_pattern = re.compile(
         "["
@@ -32,97 +45,115 @@ def remove_emojis(text):
         "]+",
         flags=re.UNICODE,
     )
+
     return emoji_pattern.sub("", text)
 
 
+# ==========================================
+# CLEAN COMMON ISSUES
+# ==========================================
+
 def clean_common_typos(text):
+
     replacements = {
-        "CDL-A": "CDL-A",
         "CDL–A": "CDL-A",
         "CDL—A": "CDL-A",
-        "dry-van": "dry-van",
-        "pre-trip": "pre-trip",
-        "post-trip": "post-trip",
-        "high-wind": "high-wind",
-        "short-term": "short-term",
-        "small-fleet": "small-fleet",
-        "safety-minded": "safety-minded",
-        "securement-focused": "securement-focused",
-        "hands-on": "hands-on",
-        "time-stamped": "time-stamped",
-        "timestamped": "time-stamped",
-        "check-ins": "check-ins",
+        "dry–van": "dry-van",
+        "pre–trip": "pre-trip",
+        "post–trip": "post-trip",
+        "high–wind": "high-wind",
+        "small–fleet": "small-fleet",
+        "time–stamped": "time-stamped",
+        "check–ins": "check-ins",
+        "Tri-Cities": "Tri-Cities",
         "I-5": "I-5",
         "I-84": "I-84",
         "I-90": "I-90",
         "II-90": "I-90",
-        "CDL/DRIVER": "CDL-A driver",
-        "DRIVER record": "driving record",
-        "NorCal": "Northern California",
-        "ballast of regional lanes": "base of regional lanes",
+        "Portland ↔ Seattle": "Portland to/from Seattle",
+        "Seattle ↔ Portland": "Seattle to/from Portland",
+        "↔": "to/from",
+        "→": "to",
+        "⇄": "to/from",
+        "—": "-",
+        "–": "-",
+        "•": "-",
     }
 
     for bad, good in replacements.items():
         text = text.replace(bad, good)
 
     text = remove_emojis(text)
+
     return text.strip()
 
 
+# ==========================================
+# CLEAN PDF TEXT
+# ==========================================
+
 def clean_pdf_text(text):
+
+    text = unicodedata.normalize("NFKD", text)
+
     text = clean_common_typos(text)
 
     replacements = {
-        "—": "-",
-        "–": "-",
-        "-": "-",
-        "→": "to",
-        "↔": "to/from",
-        "⇄": "to/from",
+        "\u2011": "-",  # nonbreaking hyphen
+        "\u2010": "-",  # hyphen
+        "\u00ad": "-",  # soft hyphen
+        "\u25a0": "-",  # black square
         "■": "-",
         "“": '"',
         "”": '"',
         "‘": "'",
         "’": "'",
         "…": "...",
-        "±": "+/-",
         "°": " degrees ",
     }
 
     for bad, good in replacements.items():
         text = text.replace(bad, good)
 
+    text = text.encode("ascii", "ignore").decode("ascii")
+
     return text.strip()
 
 
-def proofread_content(section_name, content):
-    prompt = f"""
-Proofread and clean the following trucking-company content.
+# ==========================================
+# STRIP WEIRD HEADERS
+# ==========================================
 
-Section:
-{section_name}
+def strip_junk_headers(text):
 
-Content:
-{content}
+    junk = [
+        "Section:",
+        "Content:",
+        "Social Posts",
+        "Freight Digest",
+        "Company Update",
+    ]
 
-Rules:
-- Fix typos and awkward wording
-- Remove emojis
-- Remove hashtags
-- Keep the trucking tone practical and realistic
-- Do not add fake statistics
-- Do not make it sound corporate
-- Keep the original meaning
-- Preserve headings and post numbering where possible
-- Return only the cleaned content
-"""
+    lines = []
 
-    cleaned = generate_text(prompt)
-    cleaned = clean_common_typos(cleaned)
-    return cleaned
+    for line in text.splitlines():
 
+        stripped = line.strip()
+
+        if stripped in junk:
+            continue
+
+        lines.append(line)
+
+    return "\n".join(lines)
+
+
+# ==========================================
+# GENERATE PACK
+# ==========================================
 
 def generate_pack_for_client(client_path):
+
     with open(client_path, "r") as f:
         client = json.load(f)
 
@@ -137,252 +168,138 @@ def generate_pack_for_client(client_path):
     benefits = as_list_text(client.get("benefits", []))
     primary_states = as_list_text(client.get("primary_states", []))
 
+    # ==========================================
+    # PROMPTS
+    # ==========================================
+
+    base_rules = """
+- Write for real truck drivers
+- No emojis
+- No hashtags
+- No corporate fluff
+- Use practical trucking language
+- Keep wording realistic and believable
+"""
+
     recruiting_prompt = f"""
-Create 5 realistic recruiting posts for this trucking company.
+Create 5 realistic recruiting posts.
 
-Company:
-{company_name}
-
-Fleet Size:
-{client.get("fleet_size")}
-
-Home Base:
-{client.get("home_base")}
-
-Region:
-{client.get("region")}
-
-Primary States:
-{primary_states}
-
-Equipment:
-{client.get("equipment")}
-
-Operation Type:
-{client.get("operation_type")}
-
-Hiring For:
-{client.get("hiring_for")}
-
-Experience Required:
-{client.get("experience_required")}
-
-Home Time:
-{client.get("home_time")}
-
-Pay/Work Angle:
-{client.get("pay_angle")}
-
-Benefits:
-{benefits}
-
-Common Lanes:
-{common_lanes}
-
-Pain Points:
-{pain_points}
-
-Target Driver:
-{client.get("target_driver")}
-
-Contact Email:
-{client.get("contact_email")}
-
-Contact Phone:
-{client.get("contact_phone")}
-
-Tone:
-{client.get("tone")}
+Company: {company_name}
+Fleet Size: {client.get("fleet_size")}
+Region: {client.get("region")}
+Equipment: {client.get("equipment")}
+Operation Type: {client.get("operation_type")}
+Hiring For: {client.get("hiring_for")}
+Common Lanes: {common_lanes}
+Benefits: {benefits}
+Pain Points: {pain_points}
+Tone: {client.get("tone")}
 
 Requirements:
-- Write for real truck drivers, not office executives
-- Avoid corporate fluff
-- Do not use emojis
-- Do not use hashtags
-- Make each post distinct
-- Include a realistic call to action
+{base_rules}
+
+- Include realistic call-to-actions
+- Mention home time or lanes when appropriate
 """
 
     social_prompt = f"""
-Create 3 realistic social media posts for this trucking company.
+Create 3 realistic trucking social posts.
 
-Company:
-{company_name}
-
-Region:
-{client.get("region")}
-
-Home Base:
-{client.get("home_base")}
-
-Equipment:
-{client.get("equipment")}
-
-Operation Type:
-{client.get("operation_type")}
-
-Common Lanes:
-{common_lanes}
-
-Pain Points:
-{pain_points}
-
-Tone:
-{client.get("tone")}
+Company: {company_name}
+Equipment: {client.get("equipment")}
+Region: {client.get("region")}
+Common Lanes: {common_lanes}
+Pain Points: {pain_points}
 
 Requirements:
-- Make the posts sound like they came from a small trucking company
-- Professional but human
-- Avoid corporate fluff
-- Do not use emojis
-- Do not use hashtags
-- Focus on operational reality, drivers, safety, equipment, lanes, weather, or communication
+{base_rules}
+
+- Focus on operations, weather, safety, detention, drivers, or dispatch
 """
 
     safety_prompt = f"""
-Create 2 practical trucking safety reminders for this company.
+Create 2 practical trucking safety reminders.
 
-Company:
-{company_name}
-
-Region:
-{client.get("region")}
-
-Primary States:
-{primary_states}
-
-Equipment:
-{client.get("equipment")}
-
-Operation Type:
-{client.get("operation_type")}
-
-Common Lanes:
-{common_lanes}
-
-Pain Points:
-{pain_points}
-
-Tone:
-{client.get("tone")}
+Company: {company_name}
+Equipment: {client.get("equipment")}
+Region: {client.get("region")}
+Common Lanes: {common_lanes}
 
 Requirements:
-- Practical
-- Specific to the equipment and region
-- Avoid generic safety slogans
-- Avoid corporate language
-- Do not use emojis
-- Do not use hashtags
+{base_rules}
+
+- Keep them practical and field-relevant
 """
 
     company_update_prompt = f"""
-Write a short weekly company update/newsletter for this trucking company.
+Create a weekly trucking company update.
 
-Company:
-{company_name}
-
-Fleet Size:
-{client.get("fleet_size")}
-
-Region:
-{client.get("region")}
-
-Home Base:
-{client.get("home_base")}
-
-Equipment:
-{client.get("equipment")}
-
-Operation Type:
-{client.get("operation_type")}
-
-Common Lanes:
-{common_lanes}
-
-Pain Points:
-{pain_points}
-
-Tone:
-{client.get("tone")}
+Company: {company_name}
+Fleet Size: {client.get("fleet_size")}
+Operation Type: {client.get("operation_type")}
+Common Lanes: {common_lanes}
 
 Requirements:
-- Write like an owner, dispatcher, or operations manager talking to drivers
-- Mention freight conditions
-- Mention operational reminders relevant to this company
-- Keep concise
-- Avoid corporate fluff
-- Do not use emojis
-- Do not use hashtags
+{base_rules}
+
+- Write like operations or dispatch talking to drivers
 """
 
     freight_digest_prompt = f"""
-Write a concise freight and trucking industry digest for this company.
+Create a regional freight digest.
 
-Company:
-{company_name}
-
-Region:
-{client.get("region")}
-
-Primary States:
-{primary_states}
-
-Equipment:
-{client.get("equipment")}
-
-Operation Type:
-{client.get("operation_type")}
-
-Common Lanes:
-{common_lanes}
-
-Pain Points:
-{pain_points}
-
-Tone:
-{client.get("tone")}
+Company: {company_name}
+Equipment: {client.get("equipment")}
+Region: {client.get("region")}
+Common Lanes: {common_lanes}
 
 Requirements:
-- Mention freight trends relevant to this operation
-- Mention diesel/fuel conditions generally
-- Mention weather/logistics concerns relevant to their lanes
-- Include practical operational tips
-- Do not invent exact prices or statistics
-- Do not use emojis
-- Do not use hashtags
+{base_rules}
+
+- Mention weather, freight conditions, fuel, and operational concerns
 """
 
     print(f"\n=== Generating pack for {company_name} ===")
 
-    print("Generating recruiting posts...")
-    recruiting_posts = proofread_content(
-        "Recruiting Posts",
-        generate_text(recruiting_prompt)
-    )
+    recruiting_posts = generate_text(recruiting_prompt)
+    social_posts = generate_text(social_prompt)
+    safety_reminders = generate_text(safety_prompt)
+    company_update = generate_text(company_update_prompt)
+    freight_digest = generate_text(freight_digest_prompt)
 
-    print("Generating social posts...")
-    social_posts = proofread_content(
-        "Social Posts",
-        generate_text(social_prompt)
-    )
+    # ==========================================
+    # CLEANUP
+    # ==========================================
 
-    print("Generating safety reminders...")
-    safety_reminders = proofread_content(
-        "Safety Reminders",
-        generate_text(safety_prompt)
-    )
+    sections = [
+        recruiting_posts,
+        social_posts,
+        safety_reminders,
+        company_update,
+        freight_digest,
+    ]
 
-    print("Generating company update...")
-    company_update = proofread_content(
-        "Company Update",
-        generate_text(company_update_prompt)
-    )
+    cleaned_sections = []
 
-    print("Generating freight digest...")
-    freight_digest = proofread_content(
-        "Freight Digest",
-        generate_text(freight_digest_prompt)
-    )
+    for section in sections:
+
+        section = clean_common_typos(section)
+        section = clean_pdf_text(section)
+        section = strip_junk_headers(section)
+
+        cleaned_sections.append(section)
+
+    (
+        recruiting_posts,
+        social_posts,
+        safety_reminders,
+        company_update,
+        freight_digest,
+    ) = cleaned_sections
+
+    # ==========================================
+    # FULL PACK
+    # ==========================================
 
     full_pack = f"""
 # Weekly Fleet Recruiting & Communication Pack
@@ -396,14 +313,8 @@ Requirements:
 ## Region
 {client.get("region")}
 
-## Home Base
-{client.get("home_base")}
-
 ## Equipment
 {client.get("equipment")}
-
-## Operation Type
-{client.get("operation_type")}
 
 ## Hiring For
 {client.get("hiring_for")}
@@ -413,36 +324,36 @@ Requirements:
 
 ---
 
-# 1. Recruiting Posts
+# Recruiting Posts
 
 {recruiting_posts}
 
 ---
 
-# 2. Social Posts
+# Social Posts
 
 {social_posts}
 
 ---
 
-# 3. Safety Reminders
+# Safety Reminders
 
 {safety_reminders}
 
 ---
 
-# 4. Company Update
+# Company Update
 
 {company_update}
 
 ---
 
-# 5. Freight Digest
+# Freight Digest
 
 {freight_digest}
 """
 
-    full_pack = clean_common_typos(full_pack)
+    full_pack = clean_pdf_text(full_pack)
 
     files = {
         "recruiting_posts.md": recruiting_posts,
@@ -453,9 +364,18 @@ Requirements:
         "full_pack.md": full_pack,
     }
 
+    # ==========================================
+    # WRITE FILES
+    # ==========================================
+
     for filename, content in files.items():
+
         with open(output_dir / filename, "w") as f:
             f.write(content)
+
+    # ==========================================
+    # PDF GENERATION
+    # ==========================================
 
     pdf_path = output_dir / "full_pack.pdf"
 
@@ -469,31 +389,61 @@ Requirements:
     )
 
     styles = getSampleStyleSheet()
+
     story = []
 
-    pdf_pack = clean_pdf_text(full_pack)
+    sections = full_pack.split("\n---\n")
 
-    for line in pdf_pack.splitlines():
-        line = clean_pdf_text(line)
+    for section in sections:
 
-        if not line:
-            story.append(Spacer(1, 8))
-            continue
+        block = []
 
-        if line.startswith("# "):
-            story.append(Paragraph(line.replace("# ", ""), styles["Title"]))
-            story.append(Spacer(1, 12))
+        for line in section.splitlines():
 
-        elif line.startswith("## "):
-            story.append(Paragraph(line.replace("## ", ""), styles["Heading2"]))
-            story.append(Spacer(1, 8))
+            line = line.strip()
 
-        elif line.startswith("---"):
-            story.append(Spacer(1, 12))
+            if not line:
+                block.append(Spacer(1, 8))
+                continue
 
-        else:
-            story.append(Paragraph(line, styles["BodyText"]))
-            story.append(Spacer(1, 6))
+            if line.startswith("# "):
+
+                block.append(
+                    Paragraph(
+                        line.replace("# ", ""),
+                        styles["Title"]
+                    )
+                )
+
+                block.append(Spacer(1, 12))
+
+            elif line.startswith("## "):
+
+                block.append(
+                    Paragraph(
+                        line.replace("## ", ""),
+                        styles["Heading2"]
+                    )
+                )
+
+                block.append(Spacer(1, 8))
+
+            else:
+
+                block.append(
+                    Paragraph(
+                        line,
+                        styles["BodyText"]
+                    )
+                )
+
+                block.append(Spacer(1, 6))
+
+        story.append(KeepTogether(block))
+        story.append(PageBreak())
+
+    if story:
+        story.pop()
 
     doc.build(story)
 
@@ -501,11 +451,18 @@ Requirements:
     print(f"PDF generated: {pdf_path}")
 
 
+# ==========================================
+# MAIN
+# ==========================================
+
 def main():
+
     client_files = sorted(CLIENTS_DIR.glob("*.json"))
 
     if not client_files:
-        raise FileNotFoundError("No client JSON files found in clients/")
+        raise FileNotFoundError(
+            "No client JSON files found in clients/"
+        )
 
     print(f"Found {len(client_files)} client profile(s).")
 
