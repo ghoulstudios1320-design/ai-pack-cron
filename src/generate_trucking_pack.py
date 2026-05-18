@@ -22,6 +22,8 @@ from reportlab.platypus import (
     TableStyle,
 )
 
+from src.ai_content import generate_ai_content
+
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 CLIENTS_DIR = ROOT_DIR / "clients"
@@ -418,7 +420,7 @@ Operations / Dispatch
     return clean_text_spacing(content)
 
 
-def generate_freight_digest(client: Dict[str, Any]) -> str:
+def build_freight_digest_fallback(client: Dict[str, Any]) -> str:
     company = safe_client_value(client, "company_name", "Company")
     region = safe_client_value(client, "region", "regional")
     equipment = safe_client_value(client, "equipment", "tractor-trailer")
@@ -507,6 +509,18 @@ Run the plan, but do not let the plan outrank safety. Document clearly, communic
 """
 
     return clean_text_spacing(content)
+
+
+def generate_freight_digest(client: Dict[str, Any]) -> str:
+    fallback = build_freight_digest_fallback(client)
+
+    return clean_text_spacing(
+        generate_ai_content(
+            client=client,
+            content_type="freight_digest",
+            fallback_text=fallback,
+        )
+    )
 
 
 def build_full_pack_markdown(client: Dict[str, Any], week_key: str, sections: Dict[str, str]) -> str:
@@ -906,6 +920,8 @@ def write_meta(client: Dict[str, Any], out_dir: Path, week_key: str) -> None:
         "website": contact["website"],
         "logo_path": configured_logo_path,
         "logo_loaded": bool(resolved_logo_path),
+        "ai_content_enabled": bool(os.getenv("OPENAI_API_KEY", "").strip()),
+        "ai_sections": ["freight_digest"],
         "files": {
             "full_pack_md": "full_pack.md",
             "full_pack_pdf": "full_pack.pdf",
