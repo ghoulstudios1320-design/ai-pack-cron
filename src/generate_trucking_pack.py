@@ -768,17 +768,18 @@ def build_pdf(client: Dict[str, Any], out_dir: Path, week_key: str, sections: Di
     )
 
     meta_table.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (0, -1), primary_color),
-        ("TEXTCOLOR", (0, 0), (0, -1), colors.white),
-        ("BACKGROUND", (1, 0), (1, -1), colors.HexColor("#F9FAFB")),
-        ("BOX", (0, 0), (-1, -1), 1, accent_color),
-        ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#E5E7EB")),
-        ("LEFTPADDING", (0, 0), (-1, -1), 8),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-    ]))
+    ("BACKGROUND", (0, 0), (0, -1), primary_color),
+    ("TEXTCOLOR", (0, 0), (0, -1), colors.white),
+    ("BACKGROUND", (1, 0), (1, -1), colors.HexColor("#F9FAFB")),
+    ("TEXTCOLOR", (1, 0), (1, -1), colors.HexColor("#111827")),
+    ("BOX", (0, 0), (-1, -1), 1, accent_color),
+    ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#E5E7EB")),
+    ("LEFTPADDING", (0, 0), (-1, -1), 8),
+    ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+    ("TOPPADDING", (0, 0), (-1, -1), 6),
+    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+]))
 
     story.append(Spacer(1, 10))
     story.append(meta_table)
