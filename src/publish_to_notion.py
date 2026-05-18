@@ -86,13 +86,6 @@ def notion_headers(api_key: str) -> Dict[str, str]:
     }
 
 
-def create_notion_page(
-    api_key: str,
-    database_id: str,
-    week: str,
-    client: Dict[str, Any],
-) -> Dict[str, Any]:
-
     payload = {
         "parent": {
             "database_id": database_id,
@@ -107,6 +100,21 @@ def create_notion_page(
                     }
                 ]
             },
+
+            "Status": {
+                "select": {
+                    "name": "Published"
+                }
+            },
+
+            "Week": {
+                "number": int(week.split("-W")[1])
+            },
+
+            "Year": {
+                "number": int(week.split("-W")[0])
+            },
+
             "Client ID": {
                 "rich_text": [
                     {
@@ -116,41 +124,29 @@ def create_notion_page(
                     }
                 ]
             },
-            "Week": {
-                "rich_text": [
-                    {
-                        "text": {
-                            "content": week
-                        }
-                    }
-                ]
-            },
-            "Status": {
-                "select": {
-                    "name": client["delivery_status"]
-                }
-            },
+
             "PDF URL": {
                 "url": client.get("drive_pdf_url")
             },
+
             "ZIP URL": {
                 "url": client.get("drive_zip_url")
             },
+
             "Markdown URL": {
                 "url": client.get("drive_markdown_url")
             },
+
+            "Drive Folder": {
+                "url": (
+                    f"https://drive.google.com/drive/folders/"
+                    f"{client.get('drive_client_folder_id')}"
+                    if client.get("drive_client_folder_id")
+                    else None
+                )
+            },
         }
     }
-
-    response = requests.post(
-        "https://api.notion.com/v1/pages",
-        headers=notion_headers(api_key),
-        json=payload,
-        timeout=30,
-    )
-
-    response.raise_for_status()
-
     return response.json()
 
 
