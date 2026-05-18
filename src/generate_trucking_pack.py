@@ -338,7 +338,7 @@ def generate_safety_reminders(client: Dict[str, Any]) -> str:
     )
 
 
-def generate_company_update(client: Dict[str, Any]) -> str:
+def build_company_update_fallback(client: Dict[str, Any]) -> str:
     contact = require_contact_block(client)
 
     company = contact["company"]
@@ -430,6 +430,18 @@ Operations / Dispatch
 """
 
     return clean_text_spacing(content)
+
+
+def generate_company_update(client: Dict[str, Any]) -> str:
+    fallback = build_company_update_fallback(client)
+
+    return clean_text_spacing(
+        generate_ai_content(
+            client=client,
+            content_type="company_update",
+            fallback_text=fallback,
+        )
+    )
 
 
 def build_freight_digest_fallback(client: Dict[str, Any]) -> str:
@@ -933,7 +945,7 @@ def write_meta(client: Dict[str, Any], out_dir: Path, week_key: str) -> None:
         "logo_path": configured_logo_path,
         "logo_loaded": bool(resolved_logo_path),
         "ai_content_enabled": bool(os.getenv("OPENAI_API_KEY", "").strip()),
-        "ai_sections": ["freight_digest", "safety_reminders"],
+        "ai_sections": ["freight_digest", "safety_reminders", "company_update"],
         "files": {
             "full_pack_md": "full_pack.md",
             "full_pack_pdf": "full_pack.pdf",
