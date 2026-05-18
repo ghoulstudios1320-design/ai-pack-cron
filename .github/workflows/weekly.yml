@@ -35,6 +35,9 @@ jobs:
       - name: Simulate distribution
         run: python -m src.simulate_distribution
 
+      - name: Simulate Notion publish
+        run: python -m src.simulate_notion_publish
+
       - name: Upload output artifact
         uses: actions/upload-artifact@v4
         with:
