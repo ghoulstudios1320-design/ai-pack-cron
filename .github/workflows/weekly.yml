@@ -58,6 +58,9 @@ jobs:
       - name: Write run history
         run: python -m src.write_run_history
 
+      - name: Validate pipeline health
+        run: python -m src.validate_pipeline_health
+
       - name: Upload output artifact
         uses: actions/upload-artifact@v4
         with:
