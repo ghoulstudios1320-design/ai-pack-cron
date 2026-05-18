@@ -3,11 +3,14 @@ name: weekly-pack
 on:
   workflow_dispatch:
   schedule:
-    - cron: "0 14 * * 1"
+    - cron: "0 13 * * 1"
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+
+    env:
+      PYTHONPATH: ${{ github.workspace }}
 
     steps:
       - name: Check out repo
@@ -23,7 +26,9 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Generate trucking pack
+      - name: Generate trucking packs
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: python -m src.generate_trucking_pack
 
       - name: Package trucking outputs
@@ -33,23 +38,23 @@ jobs:
         run: python -m src.build_distribution_manifest
 
       - name: Upload Drive artifacts
-        run: python -m src.upload_drive_artifacts
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
+        run: python -m src.upload_drive_artifacts
 
       - name: Publish to Notion
-        run: python -m src.publish_to_notion
         env:
           NOTION_API_KEY: ${{ secrets.NOTION_API_KEY }}
           NOTION_DATABASE_ID: ${{ secrets.NOTION_DATABASE_ID }}
+        run: python -m src.publish_to_notion
 
       - name: Send webhook notifications
-        run: python -m src.send_webhook_notifications
         env:
           WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
+        run: python -m src.send_webhook_notifications
 
-      - name: Simulate failure and retry state
+      - name: Simulate failure retry
         run: python -m src.simulate_failure_retry
 
       - name: Simulate retry recovery
@@ -66,5 +71,6 @@ jobs:
         with:
           name: trucking-pack-output
           path: output/
+
       - name: Write production summary
         run: python -m src.write_production_summary
