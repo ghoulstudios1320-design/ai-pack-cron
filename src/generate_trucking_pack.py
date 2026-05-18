@@ -229,6 +229,21 @@ def paragraph_text(line):
     return escape(clean_pdf_text(line))
 
 
+def safe_hex_color(value, fallback):
+    if not value:
+        return fallback
+
+    value = str(value).strip()
+
+    if not value.startswith("#"):
+        return fallback
+
+    if len(value) not in [4, 7]:
+        return fallback
+
+    return value
+
+
 def generate_pack_for_client(client_path):
     with open(client_path, "r") as f:
         client = json.load(f)
@@ -242,6 +257,18 @@ def generate_pack_for_client(client_path):
     common_lanes = as_list_text(client.get("common_lanes", []))
     pain_points = as_list_text(client.get("pain_points", []))
     benefits = as_list_text(client.get("benefits", []))
+
+    brand_color = safe_hex_color(
+        client.get("brand_color"),
+        "#1f2937",
+    )
+
+    accent_color = safe_hex_color(
+        client.get("accent_color"),
+        "#9ca3af",
+    )
+
+    tagline = client.get("tagline", "")
 
     base_rules = """
 - Write for real truck drivers
@@ -419,9 +446,14 @@ Requirements:
             f"Page {doc.page}"
         )
 
+        canvas.setStrokeColor(colors.HexColor(accent_color))
+        canvas.setLineWidth(1)
+        canvas.line(45, 32, 567, 32)
+
         canvas.setFont("Helvetica", 9)
-        canvas.setFillColor(colors.grey)
-        canvas.drawRightString(560, 20, footer_text)
+        canvas.setFillColor(colors.HexColor(brand_color))
+        canvas.drawRightString(560, 18, footer_text)
+
         canvas.restoreState()
 
     doc = SimpleDocTemplate(
@@ -430,7 +462,7 @@ Requirements:
         rightMargin=45,
         leftMargin=45,
         topMargin=50,
-        bottomMargin=40,
+        bottomMargin=45,
     )
 
     styles = getSampleStyleSheet()
@@ -441,6 +473,17 @@ Requirements:
         fontSize=22,
         leading=26,
         alignment=1,
+        textColor=colors.HexColor(brand_color),
+        spaceAfter=14,
+    )
+
+    tagline_style = ParagraphStyle(
+        "Tagline",
+        parent=styles["BodyText"],
+        fontSize=11,
+        leading=15,
+        alignment=1,
+        textColor=colors.HexColor(accent_color),
         spaceAfter=20,
     )
 
@@ -449,7 +492,7 @@ Requirements:
         parent=styles["Heading1"],
         fontSize=18,
         leading=22,
-        textColor=colors.HexColor("#1f2937"),
+        textColor=colors.HexColor(brand_color),
         spaceBefore=20,
         spaceAfter=12,
     )
@@ -475,7 +518,7 @@ Requirements:
 
     story = []
 
-    story.append(Spacer(1, 100))
+    story.append(Spacer(1, 90))
 
     story.append(
         Paragraph(
@@ -484,7 +527,17 @@ Requirements:
         )
     )
 
-    story.append(Spacer(1, 24))
+    if tagline:
+        story.append(
+            Paragraph(
+                escape(str(tagline)),
+                tagline_style,
+            )
+        )
+    else:
+        story.append(Spacer(1, 20))
+
+    story.append(Spacer(1, 16))
 
     cover_lines = [
         f"<b>Client:</b> {escape(company_name)}",
@@ -503,13 +556,13 @@ Requirements:
             )
         )
 
-    story.append(Spacer(1, 40))
+    story.append(Spacer(1, 36))
 
     story.append(
         HRFlowable(
             width="100%",
-            thickness=1,
-            color=colors.HexColor("#9ca3af"),
+            thickness=2,
+            color=colors.HexColor(accent_color),
         )
     )
 
@@ -543,8 +596,8 @@ Requirements:
                 story.append(
                     HRFlowable(
                         width="100%",
-                        thickness=0.8,
-                        color=colors.HexColor("#d1d5db"),
+                        thickness=1,
+                        color=colors.HexColor(accent_color),
                     )
                 )
 
