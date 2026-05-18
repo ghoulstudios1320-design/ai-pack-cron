@@ -157,11 +157,19 @@ def resolve_logo_path(client: Dict[str, Any]) -> Optional[Path]:
 
     path = ROOT_DIR / logo_path
 
-    if path.exists() and path.is_file():
-        return path
+    if not path.exists() or not path.is_file():
+        print(f"Logo not found, skipping: {path}")
+        return None
 
-    print(f"Logo not found, skipping: {path}")
-    return None
+    if path.stat().st_size < 100:
+        print(f"Logo file is empty or too small, skipping: {path}")
+        return None
+
+    if path.suffix.lower() not in [".png", ".jpg", ".jpeg"]:
+        print(f"Unsupported logo file type, skipping: {path}")
+        return None
+
+    return path
 
 
 def escape_pdf_text(text: str) -> str:
