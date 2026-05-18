@@ -38,8 +38,10 @@ jobs:
       - name: Simulate Notion publish
         run: python -m src.simulate_notion_publish
 
-      - name: Simulate webhook notification
-        run: python -m src.simulate_webhook_notify
+      - name: Send webhook notifications
+        run: python -m src.send_webhook_notifications
+        env:
+          WEBHOOK_URL: ${{ secrets.WEBHOOK_URL }}
 
       - name: Simulate failure and retry state
         run: python -m src.simulate_failure_retry
