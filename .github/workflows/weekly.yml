@@ -66,3 +66,5 @@ jobs:
         with:
           name: trucking-pack-output
           path: output/
+      - name: Write production summary
+        run: python -m src.write_production_summary
