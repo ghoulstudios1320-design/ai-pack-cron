@@ -3,7 +3,7 @@ import os
 import re
 from datetime import date
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from reportlab.lib import colors
 from reportlab.lib.colors import HexColor
@@ -13,6 +13,7 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
 from reportlab.platypus import (
     HRFlowable,
+    Image,
     PageBreak,
     Paragraph,
     SimpleDocTemplate,
@@ -146,6 +147,21 @@ def build_cta(client: Dict[str, Any]) -> str:
         return f"Apply at {contact['website']} or email {contact['email']} or call {contact['phone']}."
 
     return f"Email {contact['email']} or call {contact['phone']}."
+
+
+def resolve_logo_path(client: Dict[str, Any]) -> Optional[Path]:
+    logo_path = safe_client_value(client, "logo_path", "")
+
+    if not logo_path:
+        return None
+
+    path = ROOT_DIR / logo_path
+
+    if path.exists() and path.is_file():
+        return path
+
+    print(f"Logo not found, skipping: {path}")
+    return None
 
 
 def escape_pdf_text(text: str) -> str:
@@ -766,7 +782,18 @@ def build_pdf(client: Dict[str, Any], out_dir: Path, week_key: str, sections: Di
         )
     )
 
-    story.append(Spacer(1, 22))
+    story.append(Spacer(1, 18))
+
+    logo_path = resolve_logo_path(client)
+
+    if logo_path:
+        logo = Image(str(logo_path))
+        logo.drawHeight = 0.8 * inch
+        logo.drawWidth = 2.2 * inch
+        logo.hAlign = "CENTER"
+        story.append(logo)
+        story.append(Spacer(1, 14))
+
     story.append(Paragraph("Weekly Fleet Recruiting & Communication Pack", title_style))
 
     if tagline:
@@ -787,6 +814,11 @@ def build_pdf(client: Dict[str, Any], out_dir: Path, week_key: str, sections: Di
 
     if contact["website"]:
         meta_data.append(["Website", contact["website"]])
+
+    logo_config = safe_client_value(client, "logo_path", "")
+    if logo_config:
+        logo_status = "Loaded" if logo_path else "Configured, file missing"
+        meta_data.append(["Logo", logo_status])
 
     meta_rows = [
         [
@@ -867,6 +899,7 @@ def write_meta(client: Dict[str, Any], out_dir: Path, week_key: str) -> None:
         "contact_email": contact["email"],
         "contact_phone": contact["phone"],
         "website": contact["website"],
+        "logo_path": safe_client_value(client, "logo_path", ""),
         "files": {
             "full_pack_md": "full_pack.md",
             "full_pack_pdf": "full_pack.pdf",
