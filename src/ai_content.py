@@ -15,16 +15,22 @@ def build_prompt(client: Dict[str, Any], content_type: str) -> str:
     hiring_for = client.get("hiring_for", "CDL-A drivers")
     lanes = ", ".join(client.get("common_lanes", [])) or region
     pain_points = ", ".join(client.get("pain_points", [])) or "weather, detention, parking, and appointment pressure"
+    benefits = ", ".join(client.get("benefits", [])) or "clear communication, safe routing, and practical dispatch support"
+    fleet_size = client.get("fleet_size", "regional fleet")
+    operation_type = client.get("operation_type", "regional trucking")
 
     base = f"""
 You are writing operationally realistic trucking company content.
 
 Company: {company}
+Fleet size: {fleet_size}
 Region: {region}
 Equipment: {equipment}
+Operation type: {operation_type}
 Hiring focus: {hiring_for}
 Common lanes: {lanes}
 Operating pain points: {pain_points}
+Driver support / benefits: {benefits}
 Content type: {content_type}
 
 Rules:
@@ -60,6 +66,18 @@ Safety reminders requirements:
 - Keep the tone firm, practical, and safety-first.
 - Do not invent accidents, violations, pay, bonuses, or guarantees.
 - Make the reminders specific to the carrier's region, lanes, equipment, and pain points.
+"""
+
+    if content_type == "company_update":
+        return base + """
+Company update requirements:
+- Start with "# Company Update".
+- Write as a weekly driver-facing operations update.
+- Include quick status, lane notes, operating risks, paperwork/detention, equipment/maintenance, HOS/fatigue, and weekly priorities.
+- Make it specific to the carrier's region, equipment, lanes, and pain points.
+- Keep the tone professional, practical, and dispatch-realistic.
+- Do not invent company announcements, accidents, pay changes, bonuses, policy changes, or guarantees.
+- Do not make legal or regulatory claims beyond normal safe trucking practices.
 """
 
     return base
