@@ -1,7 +1,12 @@
 import json
 from pathlib import Path
 from datetime import datetime
+
 from src.openai_utils import generate_text
+
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+from reportlab.lib.styles import getSampleStyleSheet
 
 CLIENTS_DIR = Path("clients")
 week_label = datetime.now().strftime("%Y-W%U")
@@ -90,7 +95,6 @@ Requirements:
 - Avoid corporate fluff
 - Avoid emojis
 - Avoid hashtags
-- Mention equipment, lanes, home time, detention, dispatch, or securement only when relevant
 - Make each post distinct
 - Include a realistic call to action
 """
@@ -129,7 +133,6 @@ Requirements:
 - Avoid emojis
 - Avoid hashtags
 - Focus on operational reality, drivers, safety, equipment, lanes, weather, or communication
-- Make each post useful, not inspirational filler
 """
 
     safety_prompt = f"""
@@ -162,7 +165,6 @@ Tone:
 Requirements:
 - Practical
 - Specific to the equipment and region
-- Short enough to send to drivers
 - Avoid generic safety slogans
 - Avoid corporate language
 """
@@ -199,11 +201,9 @@ Tone:
 
 Requirements:
 - Write like an owner, dispatcher, or operations manager talking to drivers
-- Thank drivers directly
 - Mention freight conditions
-- Mention 2-4 operational reminders relevant to this company
-- Keep it concise
-- Avoid fake names unless asked
+- Mention operational reminders relevant to this company
+- Keep concise
 - Avoid corporate fluff
 """
 
@@ -239,8 +239,7 @@ Requirements:
 - Mention diesel/fuel conditions generally
 - Mention weather/logistics concerns relevant to their lanes
 - Include practical operational tips
-- Do not invent exact prices or hard statistics
-- Keep concise and useful
+- Do not invent exact prices or statistics
 """
 
     print(f"\n=== Generating pack for {company_name} ===")
@@ -289,17 +288,6 @@ Requirements:
 
 ---
 
-# Deliverables
-
-- 5 Recruiting Posts
-- 3 Social Posts
-- 2 Safety Reminders
-- 1 Company Update / Newsletter
-- 1 Freight / Industry Digest
-- Editable Markdown Files
-
----
-
 # 1. Recruiting Posts
 
 {recruiting_posts}
@@ -318,13 +306,13 @@ Requirements:
 
 ---
 
-# 4. Company Update / Newsletter
+# 4. Company Update
 
 {company_update}
 
 ---
 
-# 5. Freight / Industry Digest
+# 5. Freight Digest
 
 {freight_digest}
 """
@@ -342,7 +330,50 @@ Requirements:
         with open(output_dir / filename, "w") as f:
             f.write(content)
 
+    # =========================
+    # PDF GENERATION
+    # =========================
+
+    pdf_path = output_dir / "full_pack.pdf"
+
+    doc = SimpleDocTemplate(
+        str(pdf_path),
+        pagesize=letter,
+        rightMargin=40,
+        leftMargin=40,
+        topMargin=40,
+        bottomMargin=40,
+    )
+
+    styles = getSampleStyleSheet()
+    story = []
+
+    for line in full_pack.splitlines():
+        line = line.strip()
+
+        if not line:
+            story.append(Spacer(1, 8))
+            continue
+
+        if line.startswith("# "):
+            story.append(Paragraph(line.replace("# ", ""), styles["Title"]))
+            story.append(Spacer(1, 12))
+
+        elif line.startswith("## "):
+            story.append(Paragraph(line.replace("## ", ""), styles["Heading2"]))
+            story.append(Spacer(1, 8))
+
+        elif line.startswith("---"):
+            story.append(Spacer(1, 12))
+
+        else:
+            story.append(Paragraph(line, styles["BodyText"]))
+            story.append(Spacer(1, 6))
+
+    doc.build(story)
+
     print(f"Pack generated successfully: {output_dir}")
+    print(f"PDF generated: {pdf_path}")
 
 
 def main():
