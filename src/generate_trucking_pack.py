@@ -79,7 +79,17 @@ def clean_common_typos(text):
         "Portlandto/fromNorthern California": "Portland to/from Northern California",
         "Seattleto/fromPortland": "Seattle to/from Portland",
 
+        "fast-early": "fast - early",
+        "stops-don't": "stops - don't",
+        "lanes-have": "lanes - have",
+        "produce lanes-have": "produce lanes - have",
+        "fuel stops-don't": "fuel stops - don't",
+        "routes-have": "routes - have",
+        "weather-check": "weather - check",
+        "timing-call": "timing - call",
+
         "load- handling": "load handling",
+        "load - handling": "load handling",
         "fuel-reefer": "fuel - reefer",
         "conditions-reduce": "conditions - reduce",
         "storage-if": "storage - if",
@@ -88,15 +98,16 @@ def clean_common_typos(text):
         "common-same": "common - same",
         "detention-which": "detention - which",
         "reefing experience": "reefer experience",
+
         "pretrip": "pre-trip",
         "posttrip": "post-trip",
-
+        "pre - trip": "pre-trip",
+        "post - trip": "post-trip",
         "pre - call": "pre-call",
         "on - call": "on-call",
         "ops - trailers": "ops-trailers",
         "time - sensitive": "time-sensitive",
         "cold - storage": "cold-storage",
-        "load - handling": "load handling",
     }
 
     for bad, good in replacements.items():
@@ -105,15 +116,24 @@ def clean_common_typos(text):
     text = re.sub(r"([a-zA-Z])to/from([A-Z])", r"\1 to/from \2", text)
 
     text = re.sub(
-        r"([a-z])-(if|when|which|but|expect|bring|call|dont|don't)",
+        r"([a-z])-(if|when|which|but|expect|bring|call|dont|don't|early|have)",
         r"\1 - \2",
         text,
     )
 
-    text = text.replace("pre - call", "pre-call")
-    text = text.replace("on - call", "on-call")
-    text = text.replace("ops - trailers", "ops-trailers")
-    text = text.replace("time - sensitive", "time-sensitive")
+    safe_hyphens = {
+        "pre - trip": "pre-trip",
+        "post - trip": "post-trip",
+        "time - sensitive": "time-sensitive",
+        "cold - storage": "cold-storage",
+        "high - wind": "high-wind",
+        "drop - and - hook": "drop-and-hook",
+        "on - call": "on-call",
+        "pre - call": "pre-call",
+    }
+
+    for bad, good in safe_hyphens.items():
+        text = text.replace(bad, good)
 
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\s+([,.!?;:])", r"\1", text)
@@ -169,6 +189,40 @@ def strip_junk_headers(text):
         lines.append(line)
 
     return "\n".join(lines)
+
+
+def remove_duplicate_cover_content(text):
+    lines = text.splitlines()
+    cleaned = []
+    skip_next_value = False
+
+    duplicate_headers = {
+        "# Weekly Fleet Recruiting & Communication Pack",
+        "## Client",
+        "## Fleet Size",
+        "## Region",
+        "## Equipment",
+        "## Hiring For",
+        "## Week",
+    }
+
+    for line in lines:
+        stripped = line.strip()
+
+        if skip_next_value:
+            skip_next_value = False
+            continue
+
+        if stripped in duplicate_headers:
+            skip_next_value = stripped.startswith("## ")
+            continue
+
+        cleaned.append(line)
+
+    cleaned_text = "\n".join(cleaned)
+    cleaned_text = re.sub(r"\n{3,}", "\n\n", cleaned_text).strip()
+
+    return cleaned_text
 
 
 def paragraph_text(line):
@@ -339,6 +393,7 @@ Requirements:
 """
 
     full_pack = clean_pdf_text(full_pack)
+    full_pack = remove_duplicate_cover_content(full_pack)
 
     files = {
         "recruiting_posts.md": recruiting_posts,
@@ -459,10 +514,17 @@ Requirements:
     )
 
     story.append(PageBreak())
+    story.append(Spacer(1, 20))
 
-    sections = full_pack.split("\n---\n")
+    pdf_content = remove_duplicate_cover_content(full_pack)
+    sections = pdf_content.split("\n---\n")
 
     for section in sections:
+        section = section.strip()
+
+        if not section:
+            continue
+
         for line in section.splitlines():
             line = line.strip()
 
