@@ -1,5 +1,5 @@
 import os
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
 from openai import OpenAI
 
@@ -16,7 +16,7 @@ def build_prompt(client: Dict[str, Any], content_type: str) -> str:
     lanes = ", ".join(client.get("common_lanes", [])) or region
     pain_points = ", ".join(client.get("pain_points", [])) or "weather, detention, parking, and appointment pressure"
 
-    return f"""
+    base = f"""
 You are writing operationally realistic trucking company content.
 
 Company: {company}
@@ -34,9 +34,35 @@ Rules:
 - No exaggerated marketing claims.
 - Mention practical trucking realities.
 - Keep it useful, grounded, and client-ready.
-- Use clear headings.
+- Use clear markdown headings.
 - Do not include markdown code fences.
 """
+
+    if content_type == "freight_digest":
+        return base + """
+Freight digest requirements:
+- Start with "# Freight Digest".
+- Include a short operational overview.
+- Include lane-specific notes.
+- Include weather, parking, detention, fuel/routing, documentation, and driver safety notes.
+- Make the content specific to the carrier's region, lanes, equipment, and pain points.
+- Avoid repeating the exact same wording under every lane.
+"""
+
+    if content_type == "safety_reminders":
+        return base + """
+Safety reminders requirements:
+- Start with "# Safety Reminders".
+- Write for active drivers, not corporate executives.
+- Include equipment-specific reminders.
+- Include route/weather/customer safety.
+- Include parking, fatigue, backing, documentation, and dispatch communication.
+- Keep the tone firm, practical, and safety-first.
+- Do not invent accidents, violations, pay, bonuses, or guarantees.
+- Make the reminders specific to the carrier's region, lanes, equipment, and pain points.
+"""
+
+    return base
 
 
 def generate_ai_content(
