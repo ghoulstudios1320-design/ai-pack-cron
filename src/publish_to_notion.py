@@ -18,14 +18,11 @@ def find_week_dir() -> Path:
 
     if week_key:
         week_dir = OUTPUT_DIR / week_key
-
         if not week_dir.exists():
             raise RuntimeError(f"WEEK_KEY folder does not exist: {week_dir}")
-
         return week_dir
 
     week_dirs = [p for p in OUTPUT_DIR.iterdir() if p.is_dir()]
-
     if not week_dirs:
         raise RuntimeError("No output week folders found")
 
@@ -86,6 +83,25 @@ def notion_headers(api_key: str) -> Dict[str, str]:
     }
 
 
+def build_drive_folder_url(client: Dict[str, Any]) -> Optional[str]:
+    folder_id = client.get("drive_client_folder_id")
+
+    if not folder_id:
+        return None
+
+    return f"https://drive.google.com/drive/folders/{folder_id}"
+
+
+def create_notion_page(
+    api_key: str,
+    database_id: str,
+    week: str,
+    client: Dict[str, Any],
+) -> Dict[str, Any]:
+
+    year = int(week.split("-W")[0])
+    week_number = int(week.split("-W")[1])
+
     payload = {
         "parent": {
             "database_id": database_id,
@@ -100,21 +116,17 @@ def notion_headers(api_key: str) -> Dict[str, str]:
                     }
                 ]
             },
-
             "Status": {
                 "select": {
                     "name": "Published"
                 }
             },
-
             "Week": {
-                "number": int(week.split("-W")[1])
+                "number": week_number
             },
-
             "Year": {
-                "number": int(week.split("-W")[0])
+                "number": year
             },
-
             "Client ID": {
                 "rich_text": [
                     {
@@ -124,29 +136,33 @@ def notion_headers(api_key: str) -> Dict[str, str]:
                     }
                 ]
             },
-
             "PDF URL": {
                 "url": client.get("drive_pdf_url")
             },
-
             "ZIP URL": {
                 "url": client.get("drive_zip_url")
             },
-
             "Markdown URL": {
                 "url": client.get("drive_markdown_url")
             },
-
             "Drive Folder": {
-                "url": (
-                    f"https://drive.google.com/drive/folders/"
-                    f"{client.get('drive_client_folder_id')}"
-                    if client.get("drive_client_folder_id")
-                    else None
-                )
+                "url": build_drive_folder_url(client)
             },
-        }
+        },
     }
+
+    response = requests.post(
+        "https://api.notion.com/v1/pages",
+        headers=notion_headers(api_key),
+        json=payload,
+        timeout=30,
+    )
+
+    if not response.ok:
+        raise RuntimeError(
+            f"Notion API error {response.status_code}: {response.text}"
+        )
+
     return response.json()
 
 
@@ -195,6 +211,9 @@ def process_client(
 
     try:
         if use_real_notion:
+            if not api_key or not database_id:
+                raise RuntimeError("Real Notion publish requested without secrets")
+
             publish_real(
                 client,
                 week,
