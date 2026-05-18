@@ -1,3 +1,4 @@
+```python
 import json
 import re
 import unicodedata
@@ -8,24 +9,36 @@ from datetime import datetime
 from src.openai_utils import generate_text
 
 from reportlab.lib.pagesizes import letter
+from reportlab.lib import colors
+
 from reportlab.platypus import (
     SimpleDocTemplate,
     Paragraph,
     Spacer,
-    PageBreak,
     KeepTogether,
+    HRFlowable,
 )
 
-from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus.flowables import PageBreak
 
+from reportlab.lib.styles import (
+    getSampleStyleSheet,
+    ParagraphStyle,
+)
 
 CLIENTS_DIR = Path("clients")
 week_label = datetime.now().strftime("%Y-W%U")
 
 
+# ==========================================
+# HELPERS
+# ==========================================
+
 def as_list_text(items):
+
     if isinstance(items, list):
         return ", ".join(items)
+
     return str(items)
 
 
@@ -34,6 +47,7 @@ def as_list_text(items):
 # ==========================================
 
 def remove_emojis(text):
+
     emoji_pattern = re.compile(
         "["
         "\U0001F600-\U0001F64F"
@@ -50,7 +64,7 @@ def remove_emojis(text):
 
 
 # ==========================================
-# CLEAN COMMON ISSUES
+# CLEAN COMMON TEXT ISSUES
 # ==========================================
 
 def clean_common_typos(text):
@@ -65,13 +79,7 @@ def clean_common_typos(text):
         "small–fleet": "small-fleet",
         "time–stamped": "time-stamped",
         "check–ins": "check-ins",
-        "Tri-Cities": "Tri-Cities",
-        "I-5": "I-5",
-        "I-84": "I-84",
-        "I-90": "I-90",
         "II-90": "I-90",
-        "Portland ↔ Seattle": "Portland to/from Seattle",
-        "Seattle ↔ Portland": "Seattle to/from Portland",
         "↔": "to/from",
         "→": "to",
         "⇄": "to/from",
@@ -99,10 +107,10 @@ def clean_pdf_text(text):
     text = clean_common_typos(text)
 
     replacements = {
-        "\u2011": "-",  # nonbreaking hyphen
-        "\u2010": "-",  # hyphen
-        "\u00ad": "-",  # soft hyphen
-        "\u25a0": "-",  # black square
+        "\u2011": "-",
+        "\u2010": "-",
+        "\u00ad": "-",
+        "\u25a0": "-",
         "■": "-",
         "“": '"',
         "”": '"',
@@ -121,7 +129,7 @@ def clean_pdf_text(text):
 
 
 # ==========================================
-# STRIP WEIRD HEADERS
+# REMOVE JUNK HEADERS
 # ==========================================
 
 def strip_junk_headers(text):
@@ -163,10 +171,21 @@ def generate_pack_for_client(client_path):
     output_dir = Path(f"output/{week_label}/{client_id}")
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    common_lanes = as_list_text(client.get("common_lanes", []))
-    pain_points = as_list_text(client.get("pain_points", []))
-    benefits = as_list_text(client.get("benefits", []))
-    primary_states = as_list_text(client.get("primary_states", []))
+    common_lanes = as_list_text(
+        client.get("common_lanes", [])
+    )
+
+    pain_points = as_list_text(
+        client.get("pain_points", [])
+    )
+
+    benefits = as_list_text(
+        client.get("benefits", [])
+    )
+
+    primary_states = as_list_text(
+        client.get("primary_states", [])
+    )
 
     # ==========================================
     # PROMPTS
@@ -377,224 +396,216 @@ Requirements:
     # PDF GENERATION
     # ==========================================
 
-   # ==========================================
-# PDF GENERATION
-# ==========================================
+    pdf_path = output_dir / "full_pack.pdf"
 
-from reportlab.lib import colors
-from reportlab.platypus import HRFlowable
-from reportlab.platypus.flowables import PageBreak
-from reportlab.lib.styles import ParagraphStyle
-from reportlab.pdfbase.pdfmetrics import stringWidth
+    # ==========================================
+    # PAGE FOOTER
+    # ==========================================
 
+    def add_page_number(canvas, doc):
 
-pdf_path = output_dir / "full_pack.pdf"
+        canvas.saveState()
 
+        footer_text = (
+            f"{company_name} | "
+            f"Week {week_label} | "
+            f"Page {doc.page}"
+        )
 
-# ==========================================
-# PAGE FOOTER
-# ==========================================
+        canvas.setFont("Helvetica", 9)
 
-def add_page_number(canvas, doc):
+        canvas.setFillColor(colors.grey)
 
-    canvas.saveState()
+        canvas.drawRightString(
+            560,
+            20,
+            footer_text
+        )
 
-    footer_text = (
-        f"{company_name} | Week {week_label} | "
-        f"Page {doc.page}"
+        canvas.restoreState()
+
+    # ==========================================
+    # DOCUMENT
+    # ==========================================
+
+    doc = SimpleDocTemplate(
+        str(pdf_path),
+        pagesize=letter,
+        rightMargin=45,
+        leftMargin=45,
+        topMargin=50,
+        bottomMargin=40,
     )
 
-    canvas.setFont("Helvetica", 9)
+    styles = getSampleStyleSheet()
 
-    canvas.setFillColor(colors.grey)
-
-    canvas.drawRightString(
-        560,
-        20,
-        footer_text
+    title_style = ParagraphStyle(
+        "CustomTitle",
+        parent=styles["Title"],
+        fontSize=26,
+        leading=30,
+        spaceAfter=24,
     )
 
-    canvas.restoreState()
-
-
-# ==========================================
-# DOCUMENT
-# ==========================================
-
-doc = SimpleDocTemplate(
-    str(pdf_path),
-    pagesize=letter,
-    rightMargin=45,
-    leftMargin=45,
-    topMargin=50,
-    bottomMargin=40,
-)
-
-styles = getSampleStyleSheet()
-
-title_style = ParagraphStyle(
-    "CustomTitle",
-    parent=styles["Title"],
-    fontSize=26,
-    leading=30,
-    spaceAfter=24,
-)
-
-section_style = ParagraphStyle(
-    "SectionHeader",
-    parent=styles["Heading1"],
-    fontSize=18,
-    leading=22,
-    textColor=colors.HexColor("#1f2937"),
-    spaceBefore=20,
-    spaceAfter=12,
-)
-
-body_style = ParagraphStyle(
-    "BodyStyle",
-    parent=styles["BodyText"],
-    fontSize=10.5,
-    leading=16,
-    spaceAfter=8,
-)
-
-small_header_style = ParagraphStyle(
-    "SmallHeader",
-    parent=styles["Heading2"],
-    fontSize=13,
-    leading=18,
-    textColor=colors.HexColor("#374151"),
-    spaceBefore=12,
-    spaceAfter=6,
-)
-
-story = []
-
-
-# ==========================================
-# COVER PAGE
-# ==========================================
-
-story.append(
-    Spacer(1, 100)
-)
-
-story.append(
-    Paragraph(
-        "Weekly Fleet Recruiting & Communication Pack",
-        title_style
+    section_style = ParagraphStyle(
+        "SectionHeader",
+        parent=styles["Heading1"],
+        fontSize=18,
+        leading=22,
+        textColor=colors.HexColor("#1f2937"),
+        spaceBefore=20,
+        spaceAfter=12,
     )
-)
 
-story.append(
-    Spacer(1, 30)
-)
+    body_style = ParagraphStyle(
+        "BodyStyle",
+        parent=styles["BodyText"],
+        fontSize=10.5,
+        leading=16,
+        spaceAfter=8,
+    )
 
-cover_lines = [
-    f"<b>Client:</b> {company_name}",
-    f"<b>Fleet Size:</b> {client.get('fleet_size')}",
-    f"<b>Region:</b> {client.get('region')}",
-    f"<b>Equipment:</b> {client.get('equipment')}",
-    f"<b>Hiring For:</b> {client.get('hiring_for')}",
-    f"<b>Week:</b> {week_label}",
-]
+    small_header_style = ParagraphStyle(
+        "SmallHeader",
+        parent=styles["Heading2"],
+        fontSize=13,
+        leading=18,
+        textColor=colors.HexColor("#374151"),
+        spaceBefore=12,
+        spaceAfter=6,
+    )
 
-for line in cover_lines:
+    story = []
+
+    # ==========================================
+    # COVER PAGE
+    # ==========================================
+
+    story.append(
+        Spacer(1, 100)
+    )
 
     story.append(
         Paragraph(
-            line,
-            small_header_style
+            "Weekly Fleet Recruiting & Communication Pack",
+            title_style
         )
     )
 
-story.append(
-    Spacer(1, 40)
-)
-
-story.append(
-    HRFlowable(
-        width="100%",
-        thickness=1,
-        color=colors.HexColor("#9ca3af"),
+    story.append(
+        Spacer(1, 30)
     )
-)
 
-story.append(PageBreak())
+    cover_lines = [
+        f"<b>Client:</b> {company_name}",
+        f"<b>Fleet Size:</b> {client.get('fleet_size')}",
+        f"<b>Region:</b> {client.get('region')}",
+        f"<b>Equipment:</b> {client.get('equipment')}",
+        f"<b>Hiring For:</b> {client.get('hiring_for')}",
+        f"<b>Week:</b> {week_label}",
+    ]
 
+    for line in cover_lines:
 
-# ==========================================
-# MAIN CONTENT
-# ==========================================
-
-sections = full_pack.split("\n---\n")
-
-for section in sections:
-
-    block = []
-
-    for line in section.splitlines():
-
-        line = line.strip()
-
-        if not line:
-            block.append(Spacer(1, 10))
-            continue
-
-        if line.startswith("# "):
-
-            block.append(
-                Paragraph(
-                    line.replace("# ", ""),
-                    section_style
-                )
+        story.append(
+            Paragraph(
+                line,
+                small_header_style
             )
-
-            block.append(
-                HRFlowable(
-                    width="100%",
-                    thickness=0.8,
-                    color=colors.HexColor("#d1d5db"),
-                )
-            )
-
-            block.append(Spacer(1, 12))
-
-        elif line.startswith("## "):
-
-            block.append(
-                Paragraph(
-                    line.replace("## ", ""),
-                    small_header_style
-                )
-            )
-
-            block.append(Spacer(1, 6))
-
-        else:
-
-            block.append(
-                Paragraph(
-                    line,
-                    body_style
-                )
-            )
+        )
 
     story.append(
-        KeepTogether(block)
+        Spacer(1, 40)
     )
 
     story.append(
-        Spacer(1, 18)
+        HRFlowable(
+            width="100%",
+            thickness=1,
+            color=colors.HexColor("#9ca3af"),
+        )
     )
 
-doc.build(
-    story,
-    onFirstPage=add_page_number,
-    onLaterPages=add_page_number,
-)
+    story.append(PageBreak())
 
-    doc.build(story)
+    # ==========================================
+    # MAIN CONTENT
+    # ==========================================
+
+    sections = full_pack.split("\n---\n")
+
+    for section in sections:
+
+        block = []
+
+        for line in section.splitlines():
+
+            line = line.strip()
+
+            if not line:
+
+                block.append(
+                    Spacer(1, 10)
+                )
+
+                continue
+
+            if line.startswith("# "):
+
+                block.append(
+                    Paragraph(
+                        line.replace("# ", ""),
+                        section_style
+                    )
+                )
+
+                block.append(
+                    HRFlowable(
+                        width="100%",
+                        thickness=0.8,
+                        color=colors.HexColor("#d1d5db"),
+                    )
+                )
+
+                block.append(
+                    Spacer(1, 12)
+                )
+
+            elif line.startswith("## "):
+
+                block.append(
+                    Paragraph(
+                        line.replace("## ", ""),
+                        small_header_style
+                    )
+                )
+
+                block.append(
+                    Spacer(1, 6)
+                )
+
+            else:
+
+                block.append(
+                    Paragraph(
+                        line,
+                        body_style
+                    )
+                )
+
+        story.append(
+            KeepTogether(block)
+        )
+
+        story.append(
+            Spacer(1, 18)
+        )
+
+    doc.build(
+        story,
+        onFirstPage=add_page_number,
+        onLaterPages=add_page_number,
+    )
 
     print(f"Pack generated successfully: {output_dir}")
     print(f"PDF generated: {pdf_path}")
@@ -606,20 +617,28 @@ doc.build(
 
 def main():
 
-    client_files = sorted(CLIENTS_DIR.glob("*.json"))
+    client_files = sorted(
+        CLIENTS_DIR.glob("*.json")
+    )
 
     if not client_files:
+
         raise FileNotFoundError(
             "No client JSON files found in clients/"
         )
 
-    print(f"Found {len(client_files)} client profile(s).")
+    print(
+        f"Found {len(client_files)} client profile(s)."
+    )
 
     for client_path in client_files:
         generate_pack_for_client(client_path)
 
-    print("\nAll client packs generated successfully.")
+    print(
+        "\nAll client packs generated successfully."
+    )
 
 
 if __name__ == "__main__":
     main()
+```
