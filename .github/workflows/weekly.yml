@@ -8,11 +8,9 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      PYTHONPATH: ${{ github.workspace }}
 
     steps:
-      - name: Checkout
+      - name: Check out repo
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -20,23 +18,19 @@ jobs:
         with:
           python-version: "3.11"
 
-      - name: Install deps
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Sanitize OPENAI key
-        env:
-          RAW_OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
-        run: |
-          echo "OPENAI_API_KEY=$(printf "%s" "$RAW_OPENAI_KEY" | tr -d '\r\n')" >> $GITHUB_ENV
-
       - name: Generate trucking pack
         run: python -m src.generate_trucking_pack
-              python -m src.package_trucking_outputs
 
-      - name: Upload artifacts
+      - name: Package trucking outputs
+        run: python -m src.package_trucking_outputs
+
+      - name: Upload output artifact
         uses: actions/upload-artifact@v4
         with:
-          name: trucking-weekly-output
+          name: trucking-pack-output
           path: output/
