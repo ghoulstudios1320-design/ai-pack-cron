@@ -3,22 +3,22 @@ import os
 import re
 from datetime import date
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Any, Dict, List
 
 from reportlab.lib import colors
 from reportlab.lib.colors import HexColor
 from reportlab.lib.enums import TA_CENTER, TA_LEFT
 from reportlab.lib.pagesizes import letter
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
 from reportlab.platypus import (
-    SimpleDocTemplate,
-    Paragraph,
-    Spacer,
     HRFlowable,
+    PageBreak,
+    Paragraph,
+    SimpleDocTemplate,
+    Spacer,
     Table,
     TableStyle,
-    PageBreak,
 )
 
 
@@ -27,44 +27,37 @@ CLIENTS_DIR = ROOT_DIR / "clients"
 OUTPUT_DIR = ROOT_DIR / "output"
 
 
-# -----------------------------
-# Basic helpers
-# -----------------------------
-
 def get_week_key() -> str:
-    """
-    Returns ISO week key like 2026-W20.
-    GitHub Actions will use current UTC/date.
-    """
     today = date.today()
     iso_year, iso_week, _ = today.isocalendar()
     return f"{iso_year}-W{iso_week:02d}"
 
 
 def slugify(value: str) -> str:
-    value = value.strip().lower()
+    value = str(value).strip().lower()
     value = re.sub(r"[^a-z0-9]+", "_", value)
     value = re.sub(r"_+", "_", value)
     return value.strip("_")
 
 
 def clean_text_spacing(text: str) -> str:
-    """
-    Fixes known weird spacing artifacts without aggressively changing valid text.
-    """
     replacements = {
         "Moun tain": "Mountain",
         "moun tain": "mountain",
         "reef unit": "reefer unit",
         "Reef unit": "Reefer unit",
-        "reefer vans": "refrigerated vans",
         "loadseal": "load seal",
+        "(your number)": "",
+        "call/text (your number)": "",
     }
 
     for bad, good in replacements.items():
         text = text.replace(bad, good)
 
-    return text
+    text = re.sub(r" +", " ", text)
+    text = text.replace("Apply by email or email", "Email")
+    text = text.replace("Apply by email or call", "Call")
+    return text.strip()
 
 
 def safe_client_value(client: Dict[str, Any], key: str, default: str = "") -> str:
@@ -72,6 +65,18 @@ def safe_client_value(client: Dict[str, Any], key: str, default: str = "") -> st
     if value is None:
         return default
     return str(value).strip()
+
+
+def client_list(client: Dict[str, Any], key: str) -> List[str]:
+    value = client.get(key, [])
+
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+
+    return []
 
 
 def load_clients() -> List[Dict[str, Any]]:
@@ -83,7 +88,7 @@ def load_clients() -> List[Dict[str, Any]]:
     if not client_files:
         raise RuntimeError(f"No client JSON files found in: {CLIENTS_DIR}")
 
-    clients: List[Dict[str, Any]] = []
+    clients = []
 
     for path in client_files:
         with path.open("r", encoding="utf-8") as f:
@@ -98,17 +103,14 @@ def load_clients() -> List[Dict[str, Any]]:
 
 
 def ensure_output_dir(client: Dict[str, Any], week_key: str) -> Path:
-    client_id = safe_client_value(client, "client_id", slugify(client.get("company_name", "client")))
+    company = safe_client_value(client, "company_name", "client")
+    client_id = safe_client_value(client, "client_id", slugify(company))
     out_dir = OUTPUT_DIR / week_key / client_id
     out_dir.mkdir(parents=True, exist_ok=True)
     return out_dir
 
 
-def get_brand_colors(client: Dict[str, Any]) -> Dict[str, HexColor]:
-    """
-    Pull brand colors from client JSON.
-    Falls back safely if fields are missing.
-    """
+def get_brand_colors(client: Dict[str, Any]) -> Dict[str, Any]:
     brand = client.get("brand", {}) or {}
 
     return {
@@ -120,12 +122,13 @@ def get_brand_colors(client: Dict[str, Any]) -> Dict[str, HexColor]:
 
 
 def require_contact_block(client: Dict[str, Any]) -> Dict[str, str]:
-    """
-    Enforces real contact fields from client JSON so generated text does not use placeholders.
-    """
     company = safe_client_value(client, "company_name", "the carrier")
-    email = safe_client_value(client, "contact_email", f"recruiting@{slugify(company).replace('_', '')}.com")
-    phone = safe_client_value(client, "contact_phone", "contact dispatch/recruiting")
+    email = safe_client_value(
+        client,
+        "contact_email",
+        f"recruiting@{slugify(company).replace('_', '')}.com",
+    )
+    phone = safe_client_value(client, "contact_phone", "contact recruiting")
     website = safe_client_value(client, "website", "")
 
     return {
@@ -136,18 +139,27 @@ def require_contact_block(client: Dict[str, Any]) -> Dict[str, str]:
     }
 
 
-def client_list(client: Dict[str, Any], key: str) -> List[str]:
-    value = client.get(key, [])
-    if isinstance(value, list):
-        return [str(v).strip() for v in value if str(v).strip()]
-    if isinstance(value, str) and value.strip():
-        return [value.strip()]
-    return []
+def build_cta(client: Dict[str, Any]) -> str:
+    contact = require_contact_block(client)
+
+    if contact["website"]:
+        return f"Apply at {contact['website']} or email {contact['email']} or call {contact['phone']}."
+
+    return f"Email {contact['email']} or call {contact['phone']}."
 
 
-# -----------------------------
-# Content generation
-# -----------------------------
+def escape_pdf_text(text: str) -> str:
+    text = str(text)
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+    )
+
+
+def write_text_file(path: Path, content: str) -> None:
+    path.write_text(clean_text_spacing(content) + "\n", encoding="utf-8")
+
 
 def generate_recruiting_posts(client: Dict[str, Any]) -> str:
     contact = require_contact_block(client)
@@ -169,13 +181,12 @@ def generate_recruiting_posts(client: Dict[str, Any]) -> str:
     lane_text = ", ".join(lanes[:5]) if lanes else f"{region} regional lanes"
     benefit_text = ", ".join(benefits[:4]) if benefits else pay_angle
     pain_text = ", ".join(pain_points[:3]) if pain_points else "tight appointments, weather, and dock delays"
+    cta = build_cta(client)
 
-    website_line = f"Apply at {contact['website']} or " if contact["website"] else "Apply by email or "
-    cta = f"{website_line}email {contact['email']} or call {contact['phone']}."
+    content = f"""
+# Recruiting Posts
 
-    content = f"""# Recruiting Posts
-
-Post 1 - {hiring_for.title()}
+Post 1 - {hiring_for}
 {company} is hiring {hiring_for} for {operation_type} across the {region}. We run {equipment} with a {fleet_size} operation and a practical dispatch style. Common lanes include {lane_text}. This is built for {target_driver}. We offer {benefit_text}. {experience_required}. {cta}
 
 Post 2 - Regional Lanes That Stay Practical
@@ -200,14 +211,15 @@ def generate_social_posts(client: Dict[str, Any]) -> str:
     company = contact["company"]
     region = safe_client_value(client, "region", "regional")
     equipment = safe_client_value(client, "equipment", "tractor-trailer")
+    hiring_for = safe_client_value(client, "hiring_for", "CDL-A drivers")
     lanes = client_list(client, "common_lanes")
     pain_points = client_list(client, "pain_points")
-    hiring_for = safe_client_value(client, "hiring_for", "CDL-A drivers")
 
     lane_text = ", ".join(lanes[:4]) if lanes else f"{region} lanes"
     pain_text = ", ".join(pain_points[:4]) if pain_points else "weather, appointments, detention, and parking"
 
-    content = f"""# Social Posts
+    content = f"""
+# Social Posts
 
 Post 1 - Weather & Route Awareness
 Drivers running {lane_text}: check weather, road conditions, and customer timing before you roll. {region} freight can change fast when {pain_text} hit at the same time. Slow down early, communicate delays before they become failures, and keep dispatch updated. - {company}
@@ -226,42 +238,48 @@ def generate_safety_reminders(client: Dict[str, Any]) -> str:
     company = safe_client_value(client, "company_name", "Company")
     equipment = safe_client_value(client, "equipment", "tractor-trailer")
     region = safe_client_value(client, "region", "regional")
-    pain_points = client_list(client, "pain_points")
     lanes = client_list(client, "common_lanes")
+    pain_points = client_list(client, "pain_points")
 
     lane_text = ", ".join(lanes[:4]) if lanes else f"{region} lanes"
     pain_text = ", ".join(pain_points[:4]) if pain_points else "weather, parking, detention, and customer delays"
 
-    is_reefer = "reefer" in equipment.lower() or "refrigerated" in equipment.lower()
-    is_flatbed = "flatbed" in equipment.lower()
+    equipment_lower = equipment.lower()
 
-    if is_reefer:
-        reminder_1 = """Reminder 1 - Temperature Control & Reefer Checks
+    if "reefer" in equipment_lower or "refrigerated" in equipment_lower:
+        reminder_1 = """
+Reminder 1 - Temperature Control & Reefer Checks
 - Pre-trip the box and the unit before loading.
 - Confirm setpoint against the BOL before changing any setting.
 - Let the unit stabilize before loading if it has been off.
 - Check fuel, oil, belts, coolant, batteries, alarms, and door seals.
 - Load for airflow. Do not block the evaporator or side vents.
 - Log temperatures at pickup, during long runs, and before delivery.
-- If the unit alarms, pull to a safe location, call dispatch, and document the display with photos."""
-    elif is_flatbed:
-        reminder_1 = """Reminder 1 - Load Securement & Flatbed Checks
+- If the unit alarms, pull to a safe location, call dispatch, and document the display with photos.
+"""
+    elif "flatbed" in equipment_lower:
+        reminder_1 = """
+Reminder 1 - Load Securement & Flatbed Checks
 - Walk the full load before leaving the shipper or jobsite.
 - Check straps, chains, binders, winches, edge protection, dunnage, and blocking.
 - Re-check securement after the first 25-50 miles and after rough roads, hard braking, or weather.
 - Use edge protection on sharp corners and building materials.
 - Confirm flags, lights, and permits before moving oversize or overhang freight.
-- If the load shifts or securement looks wrong, stop safely and call dispatch."""
+- If the load shifts or securement looks wrong, stop safely and call dispatch.
+"""
     else:
-        reminder_1 = """Reminder 1 - Load & Trailer Checks
+        reminder_1 = """
+Reminder 1 - Load & Trailer Checks
 - Walk the trailer inside and out before leaving.
 - Confirm doors, seals, lights, tires, landing gear, and load condition.
 - Use load bars, straps, and dunnage where needed.
 - Re-check after the first 50 miles or after heavy stop-and-go traffic.
 - Keep paperwork accessible and accurate.
-- If the load shifts or the trailer feels wrong, stop safely and call dispatch."""
+- If the load shifts or the trailer feels wrong, stop safely and call dispatch.
+"""
 
-    content = f"""# Safety Reminders
+    content = f"""
+# Safety Reminders
 
 {reminder_1}
 
@@ -294,19 +312,29 @@ def generate_company_update(client: Dict[str, Any]) -> str:
     pain_points = client_list(client, "pain_points")
     benefits = client_list(client, "benefits")
 
-    lane_lines = "\n".join([f"- {lane}: expect normal appointment pressure, route planning, and customer communication." for lane in lanes[:6]])
-    if not lane_lines:
+    if lanes:
+        lane_lines = "\n".join(
+            f"- {lane}: expect normal appointment pressure, route planning, and customer communication."
+            for lane in lanes[:6]
+        )
+    else:
         lane_lines = f"- {region} regional lanes: confirm appointments, route timing, and parking before departure."
 
-    pain_lines = "\n".join([f"- {p}: plan ahead and notify dispatch early if it affects service or safety." for p in pain_points[:6]])
-    if not pain_lines:
+    if pain_points:
+        pain_lines = "\n".join(
+            f"- {item}: plan ahead and notify dispatch early if it affects service or safety."
+            for item in pain_points[:6]
+        )
+    else:
         pain_lines = "- Weather, detention, parking, and appointment changes: communicate early and document clearly."
 
-    benefit_lines = "\n".join([f"- {b}" for b in benefits[:6]])
-    if not benefit_lines:
+    if benefits:
+        benefit_lines = "\n".join(f"- {item}" for item in benefits[:6])
+    else:
         benefit_lines = "- Practical dispatch communication\n- Documented detention support\n- Safe routing decisions"
 
-    content = f"""# Company Update
+    content = f"""
+# Company Update
 
 {company} - Weekly Driver Update
 Fleet: {fleet_size}
@@ -374,25 +402,34 @@ def generate_freight_digest(client: Dict[str, Any]) -> str:
     pain_points = client_list(client, "pain_points")
 
     lane_sections = []
+
     for lane in lanes[:6]:
         lane_sections.append(
-            f"""### {lane}
+            f"""
+### {lane}
 - Freight: steady lane activity depending on customer volume and appointment availability.
 - Watch for: timing changes, parking limits, weather, and customer delay.
-- Driver tip: confirm appointment details early, document arrival/release times, and plan fuel before the lane gets tight."""
+- Driver tip: confirm appointment details early, document arrival/release times, and plan fuel before the lane gets tight.
+"""
         )
 
     if not lane_sections:
         lane_sections.append(
-            f"""### {region} Regional Lanes
+            f"""
+### {region} Regional Lanes
 - Freight: steady regional activity.
 - Watch for: appointment windows, parking, weather, and detention.
-- Driver tip: confirm details early and keep dispatch updated."""
+- Driver tip: confirm details early and keep dispatch updated.
+"""
         )
 
-    pain_text = "\n".join([f"- {p}" for p in pain_points[:8]]) if pain_points else "- Weather\n- Detention\n- Parking\n- Appointment changes"
+    if pain_points:
+        pain_text = "\n".join(f"- {item}" for item in pain_points[:8])
+    else:
+        pain_text = "- Weather\n- Detention\n- Parking\n- Appointment changes"
 
-    content = f"""# Freight Digest
+    content = f"""
+# Freight Digest
 
 {company} - {region} Regional Freight Digest
 For drivers: {equipment} operations. No fluff - practical notes you can use.
@@ -467,53 +504,49 @@ def build_full_pack_markdown(client: Dict[str, Any], week_key: str, sections: Di
     if tagline:
         parts.extend(["", tagline])
 
-    parts.extend([
-        "",
-        f"Client: {company}",
-        f"Fleet Size: {fleet_size}",
-        f"Region: {region}",
-        f"Equipment: {equipment}",
-        f"Hiring For: {hiring_for}",
-        f"Contact Email: {contact['email']}",
-        f"Contact Phone: {contact['phone']}",
-    ])
+    parts.extend(
+        [
+            "",
+            f"Client: {company}",
+            f"Fleet Size: {fleet_size}",
+            f"Region: {region}",
+            f"Equipment: {equipment}",
+            f"Hiring For: {hiring_for}",
+            f"Contact Email: {contact['email']}",
+            f"Contact Phone: {contact['phone']}",
+        ]
+    )
 
     if contact["website"]:
         parts.append(f"Website: {contact['website']}")
 
-    parts.extend([
-        "",
-        "---",
-        "",
-        sections["recruiting_posts"],
-        "",
-        "---",
-        "",
-        sections["social_posts"],
-        "",
-        "---",
-        "",
-        sections["safety_reminders"],
-        "",
-        "---",
-        "",
-        sections["company_update"],
-        "",
-        "---",
-        "",
-        sections["freight_digest"],
-        "",
-    ])
+    parts.extend(
+        [
+            "",
+            "---",
+            "",
+            sections["recruiting_posts"],
+            "",
+            "---",
+            "",
+            sections["social_posts"],
+            "",
+            "---",
+            "",
+            sections["safety_reminders"],
+            "",
+            "---",
+            "",
+            sections["company_update"],
+            "",
+            "---",
+            "",
+            sections["freight_digest"],
+            "",
+        ]
+    )
 
     return clean_text_spacing("\n".join(parts))
-
-
-# -----------------------------
-# File writing
-# -----------------------------
-
-def write_text_file(path: Path, content: str) -> None:
-    path.write_text(clean_text_spacing(content).strip() + "\n", encoding="utf-8")
 
 
 def generate_client_markdown_files(client: Dict[str, Any], out_dir: Path, week_key: str) -> Dict[str, str]:
@@ -537,16 +570,11 @@ def generate_client_markdown_files(client: Dict[str, Any], out_dir: Path, week_k
     return sections
 
 
-# -----------------------------
-# PDF generation
-# -----------------------------
-
-def add_footer(canvas, doc, client: Dict[str, Any], week_key: str, footer_color: HexColor) -> None:
+def add_footer(canvas, doc, client: Dict[str, Any], week_key: str, footer_color: Any) -> None:
     company = safe_client_value(client, "company_name", "Client")
     footer_text = f"{company} | Week {week_key} | Page {doc.page}"
 
     canvas.saveState()
-
     canvas.setStrokeColor(footer_color)
     canvas.setLineWidth(1.5)
     canvas.line(doc.leftMargin, 0.55 * inch, letter[0] - doc.rightMargin, 0.55 * inch)
@@ -554,21 +582,23 @@ def add_footer(canvas, doc, client: Dict[str, Any], week_key: str, footer_color:
     canvas.setFillColor(footer_color)
     canvas.setFont("Helvetica", 8)
     canvas.drawCentredString(letter[0] / 2, 0.38 * inch, footer_text)
-
     canvas.restoreState()
 
 
-def paragraphize_text(text: str, body_style: ParagraphStyle, section_style: ParagraphStyle, story: List[Any], accent_color: HexColor) -> None:
-    """
-    Converts markdown-ish generated content into simple PDF paragraphs.
-    """
+def paragraphize_text(
+    text: str,
+    body_style: ParagraphStyle,
+    section_style: ParagraphStyle,
+    story: List[Any],
+    accent_color: Any,
+) -> None:
     lines = clean_text_spacing(text).splitlines()
 
     for raw_line in lines:
         line = raw_line.strip()
 
         if not line:
-            story.append(Spacer(1, 6))
+            story.append(Spacer(1, 5))
             continue
 
         if line.startswith("# "):
@@ -627,17 +657,6 @@ def paragraphize_text(text: str, body_style: ParagraphStyle, section_style: Para
         story.append(Paragraph(escape_pdf_text(line), body_style))
 
 
-def escape_pdf_text(text: str) -> str:
-    """
-    Minimal XML escaping for ReportLab Paragraph.
-    """
-    return (
-        text.replace("&", "&amp;")
-        .replace("<", "&lt;")
-        .replace(">", "&gt;")
-    )
-
-
 def build_pdf(client: Dict[str, Any], out_dir: Path, week_key: str, sections: Dict[str, str]) -> None:
     contact = require_contact_block(client)
     brand_colors = get_brand_colors(client)
@@ -682,14 +701,22 @@ def build_pdf(client: Dict[str, Any], out_dir: Path, week_key: str, sections: Di
         spaceAfter=16,
     )
 
-    cover_meta_style = ParagraphStyle(
-        "CoverMeta",
+    cover_label_style = ParagraphStyle(
+        "CoverLabel",
         parent=styles["Normal"],
-        fontSize=11,
-        leading=16,
-        alignment=TA_CENTER,
+        fontSize=10,
+        leading=13,
+        alignment=TA_LEFT,
+        textColor=colors.white,
+    )
+
+    cover_value_style = ParagraphStyle(
+        "CoverValue",
+        parent=styles["Normal"],
+        fontSize=10,
+        leading=13,
+        alignment=TA_LEFT,
         textColor=colors.HexColor("#111827"),
-        spaceAfter=5,
     )
 
     section_style = ParagraphStyle(
@@ -721,20 +748,21 @@ def build_pdf(client: Dict[str, Any], out_dir: Path, week_key: str, sections: Di
     equipment = safe_client_value(client, "equipment", "")
     hiring_for = safe_client_value(client, "hiring_for", "")
 
-    # Strong visible accent bar on cover.
     story.append(
         Table(
             [[""]],
             colWidths=[doc.width],
             rowHeights=[12],
-            style=TableStyle([
-                ("BACKGROUND", (0, 0), (-1, -1), accent_color),
-                ("BOX", (0, 0), (-1, -1), 0, accent_color),
-                ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 0),
-                ("TOPPADDING", (0, 0), (-1, -1), 0),
-                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-            ]),
+            style=TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, -1), accent_color),
+                    ("BOX", (0, 0), (-1, -1), 0, accent_color),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                    ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+                    ("TOPPADDING", (0, 0), (-1, -1), 0),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ]
+            ),
         )
     )
 
@@ -746,7 +774,6 @@ def build_pdf(client: Dict[str, Any], out_dir: Path, week_key: str, sections: Di
     else:
         story.append(Paragraph(escape_pdf_text(company), subtitle_style))
 
-    # Colored client badge/table.
     meta_data = [
         ["Client", company],
         ["Fleet Size", fleet_size],
@@ -761,45 +788,53 @@ def build_pdf(client: Dict[str, Any], out_dir: Path, week_key: str, sections: Di
     if contact["website"]:
         meta_data.append(["Website", contact["website"]])
 
+    meta_rows = [
+        [
+            Paragraph(f"<b>{escape_pdf_text(label)}</b>", cover_label_style),
+            Paragraph(escape_pdf_text(value), cover_value_style),
+        ]
+        for label, value in meta_data
+    ]
+
     meta_table = Table(
-        [[Paragraph(f"<b>{escape_pdf_text(k)}</b>", cover_meta_style), Paragraph(escape_pdf_text(v), cover_meta_style)] for k, v in meta_data],
+        meta_rows,
         colWidths=[1.55 * inch, 4.7 * inch],
         hAlign="CENTER",
     )
 
-    meta_table.setStyle(TableStyle([
-    ("BACKGROUND", (0, 0), (0, -1), primary_color),
-    ("TEXTCOLOR", (0, 0), (0, -1), colors.white),
-    ("BACKGROUND", (1, 0), (1, -1), colors.HexColor("#F9FAFB")),
-    ("TEXTCOLOR", (1, 0), (1, -1), colors.HexColor("#111827")),
-    ("BOX", (0, 0), (-1, -1), 1, accent_color),
-    ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#E5E7EB")),
-    ("LEFTPADDING", (0, 0), (-1, -1), 8),
-    ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-    ("TOPPADDING", (0, 0), (-1, -1), 6),
-    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
-]))
+    meta_table.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (0, -1), primary_color),
+                ("BACKGROUND", (1, 0), (1, -1), colors.HexColor("#F9FAFB")),
+                ("BOX", (0, 0), (-1, -1), 1, accent_color),
+                ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#E5E7EB")),
+                ("LEFTPADDING", (0, 0), (-1, -1), 8),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("TOPPADDING", (0, 0), (-1, -1), 6),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ]
+        )
+    )
 
     story.append(Spacer(1, 10))
     story.append(meta_table)
     story.append(Spacer(1, 24))
 
-   story.append(
-    HRFlowable(
-        width="100%",
-        thickness=3,
-        color=accent_color,
-        spaceBefore=12,
-        spaceAfter=16,
+    story.append(
+        HRFlowable(
+            width="100%",
+            thickness=3,
+            color=accent_color,
+            spaceBefore=12,
+            spaceAfter=16,
+        )
     )
-)
 
-# Keep the cover as a real standalone page.
-# Page 2 starts directly with Recruiting Posts.
-story.append(PageBreak())
+    story.append(PageBreak())
 
-ordered_sections = [
+    ordered_sections = [
         sections["recruiting_posts"],
         sections["social_posts"],
         sections["safety_reminders"],
@@ -816,10 +851,6 @@ ordered_sections = [
         onLaterPages=lambda canvas, doc_obj: add_footer(canvas, doc_obj, client, week_key, footer_color),
     )
 
-
-# -----------------------------
-# Meta output
-# -----------------------------
 
 def write_meta(client: Dict[str, Any], out_dir: Path, week_key: str) -> None:
     contact = require_contact_block(client)
@@ -850,10 +881,6 @@ def write_meta(client: Dict[str, Any], out_dir: Path, week_key: str) -> None:
     (out_dir / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
 
-# -----------------------------
-# Main
-# -----------------------------
-
 def generate_for_client(client: Dict[str, Any], week_key: str) -> None:
     company = safe_client_value(client, "company_name", "Unnamed Client")
     client_id = safe_client_value(client, "client_id", slugify(company))
@@ -861,8 +888,8 @@ def generate_for_client(client: Dict[str, Any], week_key: str) -> None:
     print(f"Generating pack for {company} ({client_id})...")
 
     out_dir = ensure_output_dir(client, week_key)
-
     sections = generate_client_markdown_files(client, out_dir, week_key)
+
     build_pdf(client, out_dir, week_key, sections)
     write_meta(client, out_dir, week_key)
 
