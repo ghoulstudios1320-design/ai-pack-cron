@@ -47,6 +47,9 @@ jobs:
       - name: Simulate retry recovery
         run: python -m src.simulate_retry_recovery
 
+      - name: Write run history
+        run: python -m src.write_run_history
+
       - name: Upload output artifact
         uses: actions/upload-artifact@v4
         with:
