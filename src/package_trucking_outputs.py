@@ -52,7 +52,7 @@ def read_meta(client_dir: Path) -> Dict[str, str]:
         return json.load(f)
 
 
-def zip_client_folder(client_dir: Path, packages_dir: Path, week_key: str) -> Path:
+def zip_client_folder(client_dir: Path, packages_dir: Path, week_key: str) -> Dict[str, str]:
     meta = read_meta(client_dir)
 
     client_id = meta.get("client_id") or client_dir.name
@@ -65,6 +65,7 @@ def zip_client_folder(client_dir: Path, packages_dir: Path, week_key: str) -> Pa
 
     for file_name in EXPECTED_FILES:
         file_path = client_dir / file_name
+
         if file_path.exists() and file_path.is_file():
             included_files.append(file_path)
 
@@ -76,10 +77,23 @@ def zip_client_folder(client_dir: Path, packages_dir: Path, week_key: str) -> Pa
             zf.write(file_path, arcname=file_path.name)
 
     print(f"Packaged {company_name}: {zip_path}")
-    return zip_path
+
+    return {
+        "client_id": client_id,
+        "company_name": company_name,
+        "package_zip": f"_packages/{zip_name}",
+        "client_folder": client_dir.name,
+        "pdf": f"{client_dir.name}/full_pack.pdf",
+        "markdown": f"{client_dir.name}/full_pack.md",
+        "meta": f"{client_dir.name}/meta.json",
+    }
 
 
-def build_run_summary(week_dir: Path, packages_dir: Path, zip_paths: List[Path]) -> None:
+def build_run_summary(
+    week_dir: Path,
+    packages_dir: Path,
+    package_records: List[Dict[str, str]],
+) -> None:
     week_key = week_dir.name
     generated_at = datetime.now(timezone.utc).isoformat()
 
@@ -92,8 +106,10 @@ def build_run_summary(week_dir: Path, packages_dir: Path, zip_paths: List[Path])
         "",
     ]
 
-    for zip_path in sorted(zip_paths):
-        lines.append(f"- `{zip_path.name}`")
+    for record in sorted(package_records, key=lambda r: r["client_id"]):
+        lines.append(
+            f"- `{record['package_zip']}` ({record['company_name']})"
+        )
 
     lines.extend(
         [
@@ -112,6 +128,29 @@ def build_run_summary(week_dir: Path, packages_dir: Path, zip_paths: List[Path])
     print(f"Wrote run summary: {summary_path}")
 
 
+def build_master_index(
+    week_dir: Path,
+    package_records: List[Dict[str, str]],
+) -> None:
+    week_key = week_dir.name
+
+    master_index = {
+        "week": week_key,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "client_count": len(package_records),
+        "clients": sorted(package_records, key=lambda r: r["client_id"]),
+    }
+
+    index_path = week_dir / "master_index.json"
+
+    index_path.write_text(
+        json.dumps(master_index, indent=2),
+        encoding="utf-8",
+    )
+
+    print(f"Wrote master index: {index_path}")
+
+
 def main() -> None:
     week_dir = find_week_dir()
     week_key = week_dir.name
@@ -127,12 +166,23 @@ def main() -> None:
     if not client_dirs:
         raise RuntimeError(f"No client output folders found in: {week_dir}")
 
-    zip_paths = []
+    package_records = []
 
     for client_dir in sorted(client_dirs, key=lambda p: p.name):
-        zip_paths.append(zip_client_folder(client_dir, packages_dir, week_key))
+        package_records.append(
+            zip_client_folder(client_dir, packages_dir, week_key)
+        )
 
-    build_run_summary(week_dir, packages_dir, zip_paths)
+    build_run_summary(
+        week_dir,
+        packages_dir,
+        package_records,
+    )
+
+    build_master_index(
+        week_dir,
+        package_records,
+    )
 
     print("All client packages created successfully.")
 
