@@ -187,7 +187,7 @@ def write_text_file(path: Path, content: str) -> None:
     path.write_text(clean_text_spacing(content) + "\n", encoding="utf-8")
 
 
-def generate_recruiting_posts(client: Dict[str, Any]) -> str:
+def build_recruiting_posts_fallback(client: Dict[str, Any]) -> str:
     contact = require_contact_block(client)
 
     company = contact["company"]
@@ -231,7 +231,19 @@ Post 5 - {region} Driver Opportunity
     return clean_text_spacing(content)
 
 
-def generate_social_posts(client: Dict[str, Any]) -> str:
+def generate_recruiting_posts(client: Dict[str, Any]) -> str:
+    fallback = build_recruiting_posts_fallback(client)
+
+    return clean_text_spacing(
+        generate_ai_content(
+            client=client,
+            content_type="recruiting_posts",
+            fallback_text=fallback,
+        )
+    )
+
+
+def build_social_posts_fallback(client: Dict[str, Any]) -> str:
     contact = require_contact_block(client)
 
     company = contact["company"]
@@ -258,6 +270,18 @@ Post 3 - Recruiting Reality Check
 """
 
     return clean_text_spacing(content)
+
+
+def generate_social_posts(client: Dict[str, Any]) -> str:
+    fallback = build_social_posts_fallback(client)
+
+    return clean_text_spacing(
+        generate_ai_content(
+            client=client,
+            content_type="social_posts",
+            fallback_text=fallback,
+        )
+    )
 
 
 def build_safety_reminders_fallback(client: Dict[str, Any]) -> str:
@@ -945,7 +969,13 @@ def write_meta(client: Dict[str, Any], out_dir: Path, week_key: str) -> None:
         "logo_path": configured_logo_path,
         "logo_loaded": bool(resolved_logo_path),
         "ai_content_enabled": bool(os.getenv("OPENAI_API_KEY", "").strip()),
-        "ai_sections": ["freight_digest", "safety_reminders", "company_update"],
+        "ai_sections": [
+            "recruiting_posts",
+            "social_posts",
+            "safety_reminders",
+            "company_update",
+            "freight_digest",
+        ],
         "files": {
             "full_pack_md": "full_pack.md",
             "full_pack_pdf": "full_pack.pdf",
