@@ -32,6 +32,9 @@ jobs:
       - name: Build distribution manifest
         run: python -m src.build_distribution_manifest
 
+      - name: Simulate distribution
+        run: python -m src.simulate_distribution
+
       - name: Upload output artifact
         uses: actions/upload-artifact@v4
         with:
