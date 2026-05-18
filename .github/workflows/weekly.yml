@@ -30,7 +30,8 @@ jobs:
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: python -m src.generate_trucking_pack
-
+      - name: Validate content quality
+        run: python -m src.validate_content_quality
       - name: Package trucking outputs
         run: python -m src.package_trucking_outputs
 
