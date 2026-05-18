@@ -38,6 +38,9 @@ jobs:
       - name: Simulate Notion publish
         run: python -m src.simulate_notion_publish
 
+      - name: Simulate webhook notification
+        run: python -m src.simulate_webhook_notify
+
       - name: Upload output artifact
         uses: actions/upload-artifact@v4
         with:
