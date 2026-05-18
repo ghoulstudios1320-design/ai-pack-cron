@@ -823,13 +823,9 @@ def build_pdf(client: Dict[str, Any], out_dir: Path, week_key: str, sections: Di
     if contact["website"]:
         meta_data.append(["Website", contact["website"]])
 
-    logo_config = safe_client_value(client, "logo_path", "")
-    if logo_config:
-        logo_status = "Loaded" if logo_path else "Configured, file missing"
-        meta_data.append(["Logo", logo_status])
-
-    meta_rows = [
-        [
+     meta_rows = [
+        
+         [
             Paragraph(f"<b>{escape_pdf_text(label)}</b>", cover_label_style),
             Paragraph(escape_pdf_text(value), cover_value_style),
         ]
