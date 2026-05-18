@@ -32,8 +32,11 @@ jobs:
       - name: Build distribution manifest
         run: python -m src.build_distribution_manifest
 
-      - name: Simulate distribution
-        run: python -m src.simulate_distribution
+      - name: Upload Drive artifacts
+        run: python -m src.upload_drive_artifacts
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          GOOGLE_DRIVE_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
 
       - name: Simulate Notion publish
         run: python -m src.simulate_notion_publish
