@@ -260,7 +260,7 @@ Post 3 - Recruiting Reality Check
     return clean_text_spacing(content)
 
 
-def generate_safety_reminders(client: Dict[str, Any]) -> str:
+def build_safety_reminders_fallback(client: Dict[str, Any]) -> str:
     company = safe_client_value(client, "company_name", "Company")
     equipment = safe_client_value(client, "equipment", "tractor-trailer")
     region = safe_client_value(client, "region", "regional")
@@ -324,6 +324,18 @@ Drive safe,
 """
 
     return clean_text_spacing(content)
+
+
+def generate_safety_reminders(client: Dict[str, Any]) -> str:
+    fallback = build_safety_reminders_fallback(client)
+
+    return clean_text_spacing(
+        generate_ai_content(
+            client=client,
+            content_type="safety_reminders",
+            fallback_text=fallback,
+        )
+    )
 
 
 def generate_company_update(client: Dict[str, Any]) -> str:
@@ -921,7 +933,7 @@ def write_meta(client: Dict[str, Any], out_dir: Path, week_key: str) -> None:
         "logo_path": configured_logo_path,
         "logo_loaded": bool(resolved_logo_path),
         "ai_content_enabled": bool(os.getenv("OPENAI_API_KEY", "").strip()),
-        "ai_sections": ["freight_digest"],
+        "ai_sections": ["freight_digest", "safety_reminders"],
         "files": {
             "full_pack_md": "full_pack.md",
             "full_pack_pdf": "full_pack.pdf",
