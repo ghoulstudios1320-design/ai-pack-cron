@@ -33,6 +33,7 @@ jobs:
 
       - name: Generate trucking pack
         run: python -m src.generate_trucking_pack
+              python -m src.package_trucking_outputs
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
