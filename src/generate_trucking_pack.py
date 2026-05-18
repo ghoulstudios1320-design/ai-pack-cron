@@ -4,6 +4,7 @@ import unicodedata
 
 from pathlib import Path
 from datetime import datetime
+from xml.sax.saxutils import escape
 
 from src.openai_utils import generate_text
 
@@ -14,7 +15,6 @@ from reportlab.platypus import (
     SimpleDocTemplate,
     Paragraph,
     Spacer,
-    KeepTogether,
     HRFlowable,
 )
 
@@ -25,28 +25,19 @@ from reportlab.lib.styles import (
     ParagraphStyle,
 )
 
+
 CLIENTS_DIR = Path("clients")
 week_label = datetime.now().strftime("%Y-W%U")
 
 
-# ==========================================
-# HELPERS
-# ==========================================
-
 def as_list_text(items):
-
     if isinstance(items, list):
         return ", ".join(items)
 
     return str(items)
 
 
-# ==========================================
-# REMOVE EMOJIS
-# ==========================================
-
 def remove_emojis(text):
-
     emoji_pattern = re.compile(
         "["
         "\U0001F600-\U0001F64F"
@@ -62,12 +53,7 @@ def remove_emojis(text):
     return emoji_pattern.sub("", text)
 
 
-# ==========================================
-# CLEAN COMMON TEXT ISSUES
-# ==========================================
-
 def clean_common_typos(text):
-
     replacements = {
         "CDL–A": "CDL-A",
         "CDL—A": "CDL-A",
@@ -80,22 +66,19 @@ def clean_common_typos(text):
         "check–ins": "check-ins",
         "II-90": "I-90",
 
-        # Route arrow cleanup
         "↔": " to/from ",
         "→": " to ",
         "⇄": " to/from ",
 
-        # Dash cleanup
         "—": "-",
         "–": "-",
         "•": "-",
 
-        # Common bad joins
         "Portlandto/fromSeattle": "Portland to/from Seattle",
         "Portlandto/fromNorCal": "Portland to/from Northern California",
         "Portlandto/fromNorthern California": "Portland to/from Northern California",
         "Seattleto/fromPortland": "Seattle to/from Portland",
-        "Portland-Seattle": "Portland-Seattle",
+
         "load- handling": "load handling",
         "fuel-reefer": "fuel - reefer",
         "conditions-reduce": "conditions - reduce",
@@ -104,25 +87,35 @@ def clean_common_typos(text):
         "season-extra": "season - extra",
         "common-same": "common - same",
         "detention-which": "detention - which",
-        "temp plus": "temperature plus",
         "reefing experience": "reefer experience",
         "pretrip": "pre-trip",
         "posttrip": "post-trip",
+
+        "pre - call": "pre-call",
+        "on - call": "on-call",
+        "ops - trailers": "ops-trailers",
+        "time - sensitive": "time-sensitive",
+        "cold - storage": "cold-storage",
+        "load - handling": "load handling",
     }
 
     for bad, good in replacements.items():
         text = text.replace(bad, good)
 
-    # Add spacing around to/from when it gets jammed into words
     text = re.sub(r"([a-zA-Z])to/from([A-Z])", r"\1 to/from \2", text)
 
-    # Add spacing around hyphen when it accidentally joins clauses
-    text = re.sub(r"([a-z])-(if|when|which|but|expect|bring|call|dont|don't)", r"\1 - \2", text)
+    text = re.sub(
+        r"([a-z])-(if|when|which|but|expect|bring|call|dont|don't)",
+        r"\1 - \2",
+        text,
+    )
 
-    # Fix double/messy spaces
+    text = text.replace("pre - call", "pre-call")
+    text = text.replace("on - call", "on-call")
+    text = text.replace("ops - trailers", "ops-trailers")
+    text = text.replace("time - sensitive", "time-sensitive")
+
     text = re.sub(r"[ \t]+", " ", text)
-
-    # Remove spaces before punctuation
     text = re.sub(r"\s+([,.!?;:])", r"\1", text)
 
     text = remove_emojis(text)
@@ -130,14 +123,8 @@ def clean_common_typos(text):
     return text.strip()
 
 
-# ==========================================
-# CLEAN PDF TEXT
-# ==========================================
-
 def clean_pdf_text(text):
-
     text = unicodedata.normalize("NFKD", text)
-
     text = clean_common_typos(text)
 
     replacements = {
@@ -162,12 +149,7 @@ def clean_pdf_text(text):
     return text.strip()
 
 
-# ==========================================
-# REMOVE JUNK HEADERS
-# ==========================================
-
 def strip_junk_headers(text):
-
     junk = [
         "Section:",
         "Content:",
@@ -179,7 +161,6 @@ def strip_junk_headers(text):
     lines = []
 
     for line in text.splitlines():
-
         stripped = line.strip()
 
         if stripped in junk:
@@ -190,12 +171,11 @@ def strip_junk_headers(text):
     return "\n".join(lines)
 
 
-# ==========================================
-# GENERATE PACK
-# ==========================================
+def paragraph_text(line):
+    return escape(clean_pdf_text(line))
+
 
 def generate_pack_for_client(client_path):
-
     with open(client_path, "r") as f:
         client = json.load(f)
 
@@ -205,25 +185,9 @@ def generate_pack_for_client(client_path):
     output_dir = Path(f"output/{week_label}/{client_id}")
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    common_lanes = as_list_text(
-        client.get("common_lanes", [])
-    )
-
-    pain_points = as_list_text(
-        client.get("pain_points", [])
-    )
-
-    benefits = as_list_text(
-        client.get("benefits", [])
-    )
-
-    primary_states = as_list_text(
-        client.get("primary_states", [])
-    )
-
-    # ==========================================
-    # PROMPTS
-    # ==========================================
+    common_lanes = as_list_text(client.get("common_lanes", []))
+    pain_points = as_list_text(client.get("pain_points", []))
+    benefits = as_list_text(client.get("benefits", []))
 
     base_rules = """
 - Write for real truck drivers
@@ -320,10 +284,6 @@ Requirements:
     company_update = generate_text(company_update_prompt)
     freight_digest = generate_text(freight_digest_prompt)
 
-    # ==========================================
-    # CLEANUP
-    # ==========================================
-
     sections = [
         recruiting_posts,
         social_posts,
@@ -335,11 +295,9 @@ Requirements:
     cleaned_sections = []
 
     for section in sections:
-
         section = clean_common_typos(section)
         section = clean_pdf_text(section)
         section = strip_junk_headers(section)
-
         cleaned_sections.append(section)
 
     (
@@ -350,33 +308,7 @@ Requirements:
         freight_digest,
     ) = cleaned_sections
 
-    # ==========================================
-    # FULL PACK
-    # ==========================================
-
     full_pack = f"""
-# Weekly Fleet Recruiting & Communication Pack
-
-## Client
-{company_name}
-
-## Fleet Size
-{client.get("fleet_size")}
-
-## Region
-{client.get("region")}
-
-## Equipment
-{client.get("equipment")}
-
-## Hiring For
-{client.get("hiring_for")}
-
-## Week
-{week_label}
-
----
-
 # Recruiting Posts
 
 {recruiting_posts}
@@ -417,27 +349,13 @@ Requirements:
         "full_pack.md": full_pack,
     }
 
-    # ==========================================
-    # WRITE FILES
-    # ==========================================
-
     for filename, content in files.items():
-
         with open(output_dir / filename, "w") as f:
             f.write(content)
 
-    # ==========================================
-    # PDF GENERATION
-    # ==========================================
-
     pdf_path = output_dir / "full_pack.pdf"
 
-    # ==========================================
-    # PAGE FOOTER
-    # ==========================================
-
     def add_page_number(canvas, doc):
-
         canvas.saveState()
 
         footer_text = (
@@ -447,20 +365,9 @@ Requirements:
         )
 
         canvas.setFont("Helvetica", 9)
-
         canvas.setFillColor(colors.grey)
-
-        canvas.drawRightString(
-            560,
-            20,
-            footer_text
-        )
-
+        canvas.drawRightString(560, 20, footer_text)
         canvas.restoreState()
-
-    # ==========================================
-    # DOCUMENT
-    # ==========================================
 
     doc = SimpleDocTemplate(
         str(pdf_path),
@@ -476,9 +383,10 @@ Requirements:
     title_style = ParagraphStyle(
         "CustomTitle",
         parent=styles["Title"],
-        fontSize=26,
-        leading=30,
-        spaceAfter=24,
+        fontSize=22,
+        leading=26,
+        alignment=1,
+        spaceAfter=20,
     )
 
     section_style = ParagraphStyle(
@@ -507,50 +415,40 @@ Requirements:
         textColor=colors.HexColor("#374151"),
         spaceBefore=12,
         spaceAfter=6,
+        alignment=1,
     )
 
     story = []
 
-    # ==========================================
-    # COVER PAGE
-    # ==========================================
-
-    story.append(
-        Spacer(1, 100)
-    )
+    story.append(Spacer(1, 100))
 
     story.append(
         Paragraph(
             "Weekly Fleet Recruiting & Communication Pack",
-            title_style
+            title_style,
         )
     )
 
-    story.append(
-        Spacer(1, 30)
-    )
+    story.append(Spacer(1, 24))
 
     cover_lines = [
-        f"<b>Client:</b> {company_name}",
-        f"<b>Fleet Size:</b> {client.get('fleet_size')}",
-        f"<b>Region:</b> {client.get('region')}",
-        f"<b>Equipment:</b> {client.get('equipment')}",
-        f"<b>Hiring For:</b> {client.get('hiring_for')}",
-        f"<b>Week:</b> {week_label}",
+        f"<b>Client:</b> {escape(company_name)}",
+        f"<b>Fleet Size:</b> {escape(str(client.get('fleet_size')))}",
+        f"<b>Region:</b> {escape(str(client.get('region')))}",
+        f"<b>Equipment:</b> {escape(str(client.get('equipment')))}",
+        f"<b>Hiring For:</b> {escape(str(client.get('hiring_for')))}",
+        f"<b>Week:</b> {escape(week_label)}",
     ]
 
     for line in cover_lines:
-
         story.append(
             Paragraph(
                 line,
-                small_header_style
+                small_header_style,
             )
         )
 
-    story.append(
-        Spacer(1, 40)
-    )
+    story.append(Spacer(1, 40))
 
     story.append(
         HRFlowable(
@@ -562,38 +460,25 @@ Requirements:
 
     story.append(PageBreak())
 
-    # ==========================================
-    # MAIN CONTENT
-    # ==========================================
-
     sections = full_pack.split("\n---\n")
 
     for section in sections:
-
-        block = []
-
         for line in section.splitlines():
-
             line = line.strip()
 
             if not line:
-
-                block.append(
-                    Spacer(1, 10)
-                )
-
+                story.append(Spacer(1, 10))
                 continue
 
             if line.startswith("# "):
-
-                block.append(
+                story.append(
                     Paragraph(
-                        line.replace("# ", ""),
-                        section_style
+                        paragraph_text(line.replace("# ", "")),
+                        section_style,
                     )
                 )
 
-                block.append(
+                story.append(
                     HRFlowable(
                         width="100%",
                         thickness=0.8,
@@ -601,39 +486,27 @@ Requirements:
                     )
                 )
 
-                block.append(
-                    Spacer(1, 12)
-                )
+                story.append(Spacer(1, 12))
 
             elif line.startswith("## "):
-
-                block.append(
+                story.append(
                     Paragraph(
-                        line.replace("## ", ""),
-                        small_header_style
+                        paragraph_text(line.replace("## ", "")),
+                        small_header_style,
                     )
                 )
 
-                block.append(
-                    Spacer(1, 6)
-                )
+                story.append(Spacer(1, 6))
 
             else:
-
-                block.append(
+                story.append(
                     Paragraph(
-                        line,
-                        body_style
+                        paragraph_text(line),
+                        body_style,
                     )
                 )
 
-        story.append(
-            KeepTogether(block)
-        )
-
-        story.append(
-            Spacer(1, 18)
-        )
+        story.append(Spacer(1, 18))
 
     doc.build(
         story,
@@ -645,32 +518,18 @@ Requirements:
     print(f"PDF generated: {pdf_path}")
 
 
-# ==========================================
-# MAIN
-# ==========================================
-
 def main():
-
-    client_files = sorted(
-        CLIENTS_DIR.glob("*.json")
-    )
+    client_files = sorted(CLIENTS_DIR.glob("*.json"))
 
     if not client_files:
+        raise FileNotFoundError("No client JSON files found in clients/")
 
-        raise FileNotFoundError(
-            "No client JSON files found in clients/"
-        )
-
-    print(
-        f"Found {len(client_files)} client profile(s)."
-    )
+    print(f"Found {len(client_files)} client profile(s).")
 
     for client_path in client_files:
         generate_pack_for_client(client_path)
 
-    print(
-        "\nAll client packs generated successfully."
-    )
+    print("\nAll client packs generated successfully.")
 
 
 if __name__ == "__main__":
