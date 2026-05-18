@@ -823,9 +823,8 @@ def build_pdf(client: Dict[str, Any], out_dir: Path, week_key: str, sections: Di
     if contact["website"]:
         meta_data.append(["Website", contact["website"]])
 
-     meta_rows = [
-        
-         [
+    meta_rows = [
+        [
             Paragraph(f"<b>{escape_pdf_text(label)}</b>", cover_label_style),
             Paragraph(escape_pdf_text(value), cover_value_style),
         ]
@@ -890,6 +889,8 @@ def build_pdf(client: Dict[str, Any], out_dir: Path, week_key: str, sections: Di
 
 def write_meta(client: Dict[str, Any], out_dir: Path, week_key: str) -> None:
     contact = require_contact_block(client)
+    configured_logo_path = safe_client_value(client, "logo_path", "")
+    resolved_logo_path = resolve_logo_path(client)
 
     meta = {
         "client_id": safe_client_value(client, "client_id"),
@@ -903,7 +904,8 @@ def write_meta(client: Dict[str, Any], out_dir: Path, week_key: str) -> None:
         "contact_email": contact["email"],
         "contact_phone": contact["phone"],
         "website": contact["website"],
-        "logo_path": safe_client_value(client, "logo_path", ""),
+        "logo_path": configured_logo_path,
+        "logo_loaded": bool(resolved_logo_path),
         "files": {
             "full_pack_md": "full_pack.md",
             "full_pack_pdf": "full_pack.pdf",
