@@ -14,6 +14,7 @@ from reportlab.lib.units import inch
 from reportlab.platypus import (
     HRFlowable,
     Image,
+    KeepTogether,
     PageBreak,
     Paragraph,
     SimpleDocTemplate,
@@ -121,6 +122,11 @@ def get_brand_colors(client: Dict[str, Any]) -> Dict[str, Any]:
         "secondary": HexColor(brand.get("secondary_color", "#374151")),
         "accent": HexColor(brand.get("accent_color", "#2563EB")),
         "footer": HexColor(brand.get("footer_color", "#111827")),
+        "soft": HexColor(brand.get("soft_color", "#F3F4F6")),
+        "paper": HexColor("#FFFFFF"),
+        "ink": HexColor("#111827"),
+        "muted": HexColor("#6B7280"),
+        "line": HexColor("#E5E7EB"),
     }
 
 
@@ -662,21 +668,47 @@ def add_footer(canvas, doc, client: Dict[str, Any], week_key: str, footer_color:
 
     canvas.saveState()
     canvas.setStrokeColor(footer_color)
-    canvas.setLineWidth(1.5)
-    canvas.line(doc.leftMargin, 0.55 * inch, letter[0] - doc.rightMargin, 0.55 * inch)
+    canvas.setLineWidth(1.6)
+    canvas.line(doc.leftMargin, 0.58 * inch, letter[0] - doc.rightMargin, 0.58 * inch)
 
     canvas.setFillColor(footer_color)
-    canvas.setFont("Helvetica", 8)
-    canvas.drawCentredString(letter[0] / 2, 0.38 * inch, footer_text)
+    canvas.setFont("Helvetica-Bold", 8)
+    canvas.drawCentredString(letter[0] / 2, 0.40 * inch, footer_text)
     canvas.restoreState()
+
+
+def make_section_banner(title: str, section_style: ParagraphStyle, accent_color: Any, soft_color: Any) -> Table:
+    banner = Table(
+        [[Paragraph(escape_pdf_text(title), section_style)]],
+        colWidths=[6.85 * inch],
+    )
+
+    banner.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), soft_color),
+                ("BOX", (0, 0), (-1, -1), 0.75, accent_color),
+                ("LEFTPADDING", (0, 0), (-1, -1), 10),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+                ("TOPPADDING", (0, 0), (-1, -1), 7),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ]
+        )
+    )
+
+    return banner
 
 
 def paragraphize_text(
     text: str,
     body_style: ParagraphStyle,
+    bullet_style: ParagraphStyle,
     section_style: ParagraphStyle,
+    subheading_style: ParagraphStyle,
     story: List[Any],
     accent_color: Any,
+    soft_color: Any,
 ) -> None:
     lines = clean_text_spacing(text).splitlines()
 
@@ -684,60 +716,51 @@ def paragraphize_text(
         line = raw_line.strip()
 
         if not line:
-            story.append(Spacer(1, 5))
+            story.append(Spacer(1, 4))
             continue
 
         if line.startswith("# "):
             title = line[2:].strip()
+            story.append(Spacer(1, 12))
+            story.append(make_section_banner(title, section_style, accent_color, soft_color))
             story.append(Spacer(1, 8))
-            story.append(Paragraph(escape_pdf_text(title), section_style))
-            story.append(
-                HRFlowable(
-                    width="100%",
-                    thickness=2,
-                    color=accent_color,
-                    spaceBefore=4,
-                    spaceAfter=10,
-                )
-            )
             continue
 
         if line.startswith("## "):
             title = line[3:].strip()
-            story.append(Spacer(1, 8))
-            story.append(Paragraph(escape_pdf_text(title), section_style))
+            story.append(Spacer(1, 9))
+            story.append(Paragraph(escape_pdf_text(title), subheading_style))
             story.append(
                 HRFlowable(
-                    width="100%",
-                    thickness=1.5,
+                    width="45%",
+                    thickness=1.25,
                     color=accent_color,
-                    spaceBefore=3,
-                    spaceAfter=8,
+                    spaceBefore=2,
+                    spaceAfter=5,
+                    hAlign="LEFT",
                 )
             )
             continue
 
         if line.startswith("### "):
             title = line[4:].strip()
-            story.append(Spacer(1, 6))
-            story.append(Paragraph(f"<b>{escape_pdf_text(title)}</b>", body_style))
+            story.append(Spacer(1, 7))
+            story.append(Paragraph(f"<b>{escape_pdf_text(title)}</b>", subheading_style))
             continue
 
         if line == "---":
-            story.append(
-                HRFlowable(
-                    width="100%",
-                    thickness=1.25,
-                    color=accent_color,
-                    spaceBefore=8,
-                    spaceAfter=8,
-                )
-            )
+            story.append(Spacer(1, 5))
             continue
 
         if line.startswith("- "):
             bullet = line[2:].strip()
-            story.append(Paragraph(f"• {escape_pdf_text(bullet)}", body_style))
+            story.append(Paragraph(f"<font color='#374151'>•</font>&nbsp;&nbsp;{escape_pdf_text(bullet)}", bullet_style))
+            continue
+
+        if line.startswith("**") and line.endswith("**") and len(line) > 4:
+            title = line.replace("**", "").strip()
+            story.append(Spacer(1, 5))
+            story.append(Paragraph(f"<b>{escape_pdf_text(title)}</b>", subheading_style))
             continue
 
         story.append(Paragraph(escape_pdf_text(line), body_style))
@@ -751,16 +774,20 @@ def build_pdf(client: Dict[str, Any], out_dir: Path, week_key: str, sections: Di
     secondary_color = brand_colors["secondary"]
     accent_color = brand_colors["accent"]
     footer_color = brand_colors["footer"]
+    soft_color = brand_colors["soft"]
+    ink_color = brand_colors["ink"]
+    muted_color = brand_colors["muted"]
+    line_color = brand_colors["line"]
 
     pdf_path = out_dir / "full_pack.pdf"
 
     doc = SimpleDocTemplate(
         str(pdf_path),
         pagesize=letter,
-        rightMargin=0.65 * inch,
-        leftMargin=0.65 * inch,
-        topMargin=0.7 * inch,
-        bottomMargin=0.75 * inch,
+        rightMargin=0.55 * inch,
+        leftMargin=0.55 * inch,
+        topMargin=0.55 * inch,
+        bottomMargin=0.72 * inch,
         title=f"{contact['company']} Weekly Fleet Pack",
         author=contact["company"],
     )
@@ -770,28 +797,42 @@ def build_pdf(client: Dict[str, Any], out_dir: Path, week_key: str, sections: Di
     title_style = ParagraphStyle(
         "BrandTitle",
         parent=styles["Title"],
-        fontSize=24,
+        fontName="Helvetica-Bold",
+        fontSize=25,
         leading=30,
         alignment=TA_CENTER,
         textColor=primary_color,
-        spaceAfter=12,
+        spaceAfter=8,
     )
 
     subtitle_style = ParagraphStyle(
         "BrandSubtitle",
         parent=styles["Normal"],
-        fontSize=13,
-        leading=18,
+        fontName="Helvetica",
+        fontSize=11.5,
+        leading=15,
         alignment=TA_CENTER,
         textColor=secondary_color,
-        spaceAfter=16,
+        spaceAfter=10,
+    )
+
+    cover_kicker_style = ParagraphStyle(
+        "CoverKicker",
+        parent=styles["Normal"],
+        fontName="Helvetica-Bold",
+        fontSize=8.5,
+        leading=10,
+        alignment=TA_CENTER,
+        textColor=muted_color,
+        spaceAfter=4,
     )
 
     cover_label_style = ParagraphStyle(
         "CoverLabel",
         parent=styles["Normal"],
-        fontSize=10,
-        leading=13,
+        fontName="Helvetica-Bold",
+        fontSize=8.3,
+        leading=11,
         alignment=TA_LEFT,
         textColor=colors.white,
     )
@@ -799,30 +840,54 @@ def build_pdf(client: Dict[str, Any], out_dir: Path, week_key: str, sections: Di
     cover_value_style = ParagraphStyle(
         "CoverValue",
         parent=styles["Normal"],
-        fontSize=10,
-        leading=13,
+        fontName="Helvetica",
+        fontSize=8.6,
+        leading=11,
         alignment=TA_LEFT,
-        textColor=colors.HexColor("#111827"),
+        textColor=ink_color,
     )
 
     section_style = ParagraphStyle(
         "BrandSection",
         parent=styles["Heading1"],
-        fontSize=16,
-        leading=20,
+        fontName="Helvetica-Bold",
+        fontSize=14.5,
+        leading=18,
         textColor=primary_color,
         alignment=TA_LEFT,
-        spaceBefore=14,
-        spaceAfter=8,
+        spaceBefore=0,
+        spaceAfter=0,
+    )
+
+    subheading_style = ParagraphStyle(
+        "BrandSubheading",
+        parent=styles["Heading2"],
+        fontName="Helvetica-Bold",
+        fontSize=10.8,
+        leading=14,
+        textColor=primary_color,
+        alignment=TA_LEFT,
+        spaceBefore=3,
+        spaceAfter=3,
     )
 
     body_style = ParagraphStyle(
         "Body",
         parent=styles["BodyText"],
-        fontSize=9.5,
-        leading=13,
-        textColor=colors.HexColor("#111827"),
-        spaceAfter=4,
+        fontName="Helvetica",
+        fontSize=9.0,
+        leading=12.4,
+        textColor=ink_color,
+        spaceAfter=3.5,
+    )
+
+    bullet_style = ParagraphStyle(
+        "BulletBody",
+        parent=body_style,
+        leftIndent=12,
+        firstLineIndent=-8,
+        spaceBefore=1.2,
+        spaceAfter=2.8,
     )
 
     story: List[Any] = []
@@ -838,7 +903,7 @@ def build_pdf(client: Dict[str, Any], out_dir: Path, week_key: str, sections: Di
         Table(
             [[""]],
             colWidths=[doc.width],
-            rowHeights=[12],
+            rowHeights=[10],
             style=TableStyle(
                 [
                     ("BACKGROUND", (0, 0), (-1, -1), accent_color),
@@ -852,18 +917,19 @@ def build_pdf(client: Dict[str, Any], out_dir: Path, week_key: str, sections: Di
         )
     )
 
-    story.append(Spacer(1, 18))
+    story.append(Spacer(1, 16))
 
     logo_path = resolve_logo_path(client)
 
     if logo_path:
         logo = Image(str(logo_path))
-        logo.drawHeight = 0.8 * inch
-        logo.drawWidth = 2.2 * inch
+        logo.drawHeight = 1.05 * inch
+        logo.drawWidth = 2.85 * inch
         logo.hAlign = "CENTER"
         story.append(logo)
-        story.append(Spacer(1, 14))
+        story.append(Spacer(1, 12))
 
+    story.append(Paragraph("WEEKLY FLEET PACK", cover_kicker_style))
     story.append(Paragraph("Weekly Fleet Recruiting & Communication Pack", title_style))
 
     if tagline:
@@ -895,7 +961,7 @@ def build_pdf(client: Dict[str, Any], out_dir: Path, week_key: str, sections: Di
 
     meta_table = Table(
         meta_rows,
-        colWidths=[1.55 * inch, 4.7 * inch],
+        colWidths=[1.45 * inch, 4.85 * inch],
         hAlign="CENTER",
     )
 
@@ -905,9 +971,9 @@ def build_pdf(client: Dict[str, Any], out_dir: Path, week_key: str, sections: Di
                 ("BACKGROUND", (0, 0), (0, -1), primary_color),
                 ("BACKGROUND", (1, 0), (1, -1), colors.HexColor("#F9FAFB")),
                 ("BOX", (0, 0), (-1, -1), 1, accent_color),
-                ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#E5E7EB")),
-                ("LEFTPADDING", (0, 0), (-1, -1), 8),
-                ("RIGHTPADDING", (0, 0), (-1, -1), 8),
+                ("INNERGRID", (0, 0), (-1, -1), 0.25, line_color),
+                ("LEFTPADDING", (0, 0), (-1, -1), 9),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 9),
                 ("TOPPADDING", (0, 0), (-1, -1), 6),
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
                 ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
@@ -915,19 +981,36 @@ def build_pdf(client: Dict[str, Any], out_dir: Path, week_key: str, sections: Di
         )
     )
 
-    story.append(Spacer(1, 10))
+    story.append(Spacer(1, 12))
     story.append(meta_table)
-    story.append(Spacer(1, 24))
+    story.append(Spacer(1, 18))
 
-    story.append(
-        HRFlowable(
-            width="100%",
-            thickness=3,
-            color=accent_color,
-            spaceBefore=12,
-            spaceAfter=16,
+    summary_box = Table(
+        [
+            [
+                Paragraph(
+                    escape_pdf_text(
+                        "Generated for weekly driver communication, recruiting support, freight visibility, and safety alignment."
+                    ),
+                    subtitle_style,
+                )
+            ]
+        ],
+        colWidths=[doc.width],
+    )
+    summary_box.setStyle(
+        TableStyle(
+            [
+                ("BACKGROUND", (0, 0), (-1, -1), soft_color),
+                ("BOX", (0, 0), (-1, -1), 0.75, line_color),
+                ("LEFTPADDING", (0, 0), (-1, -1), 12),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+                ("TOPPADDING", (0, 0), (-1, -1), 10),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 10),
+            ]
         )
     )
+    story.append(summary_box)
 
     story.append(PageBreak())
 
@@ -939,8 +1022,20 @@ def build_pdf(client: Dict[str, Any], out_dir: Path, week_key: str, sections: Di
         sections["freight_digest"],
     ]
 
-    for section in ordered_sections:
-        paragraphize_text(section, body_style, section_style, story, accent_color)
+    for index, section in enumerate(ordered_sections):
+        if index > 0:
+            story.append(Spacer(1, 4))
+
+        paragraphize_text(
+            section,
+            body_style,
+            bullet_style,
+            section_style,
+            subheading_style,
+            story,
+            accent_color,
+            soft_color,
+        )
 
     doc.build(
         story,
