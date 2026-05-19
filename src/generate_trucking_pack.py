@@ -739,7 +739,7 @@ def paragraphize_text(
         if line.startswith("## "):
             title = line[3:].strip()
             story.append(Spacer(1, 9))
-            story.append(Paragraph(escape_pdf_text(title), subheading_style))
+            story.append(Paragraph(markdown_to_reportlab(title), subheading_style))
             story.append(
                 HRFlowable(
                     width="45%",
@@ -755,7 +755,7 @@ def paragraphize_text(
         if line.startswith("### "):
             title = line[4:].strip()
             story.append(Spacer(1, 7))
-            story.append(Paragraph(f"<b>{escape_pdf_text(title)}</b>", subheading_style))
+            story.append(Paragraph(f"<b>{markdown_to_reportlab(title)}</b>", subheading_style))
             continue
 
         if line == "---":
@@ -764,16 +764,21 @@ def paragraphize_text(
 
         if line.startswith("- "):
             bullet = line[2:].strip()
-            story.append(Paragraph(f"<font color='#374151'>•</font>&nbsp;&nbsp;{escape_pdf_text(bullet)}", bullet_style))
+            story.append(
+                Paragraph(
+                    f"<font color='#374151'>•</font>&nbsp;&nbsp;{markdown_to_reportlab(bullet)}",
+                    bullet_style,
+                )
+            )
             continue
 
         if line.startswith("**") and line.endswith("**") and len(line) > 4:
             title = line.replace("**", "").strip()
             story.append(Spacer(1, 5))
-            story.append(Paragraph(f"<b>{escape_pdf_text(title)}</b>", subheading_style))
+            story.append(Paragraph(f"<b>{markdown_to_reportlab(title)}</b>", subheading_style))
             continue
 
-        story.append(Paragraph(escape_pdf_text(line), body_style))
+        story.append(Paragraph(markdown_to_reportlab(line), body_style))
 
 
 def build_pdf(client: Dict[str, Any], out_dir: Path, week_key: str, sections: Dict[str, str]) -> None:
