@@ -2,13 +2,111 @@ import os
 import re
 from datetime import date
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from openai import OpenAI
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = ROOT_DIR / "output"
+
+
+MAX_PREVIOUS_WEEKS = 3
+MAX_SECTION_CHARS = 2200
+
+
+TREND_KEYWORDS = {
+    "weather": [
+        "weather",
+        "winter",
+        "snow",
+        "ice",
+        "rain",
+        "fog",
+        "wind",
+        "storm",
+        "slick roads",
+        "reduced visibility",
+        "great lakes",
+        "mountain",
+        "chains",
+    ],
+    "detention": [
+        "detention",
+        "wait time",
+        "waiting",
+        "dock delay",
+        "warehouse delay",
+        "loading delay",
+        "unloading delay",
+        "appointment",
+    ],
+    "parking": [
+        "parking",
+        "staging",
+        "overnight parking",
+        "safe parking",
+        "truck stop",
+        "rest area",
+        "limited parking",
+    ],
+    "congestion": [
+        "congestion",
+        "traffic",
+        "metro",
+        "rush hour",
+        "urban",
+        "chicago",
+        "detroit",
+        "milwaukee",
+        "columbus",
+        "indianapolis",
+    ],
+    "paperwork": [
+        "paperwork",
+        "bol",
+        "pod",
+        "documentation",
+        "documents",
+        "timestamps",
+        "arrival time",
+        "release time",
+        "signatures",
+    ],
+    "equipment": [
+        "equipment",
+        "tractor",
+        "trailer",
+        "maintenance",
+        "pre-trip",
+        "post-trip",
+        "tires",
+        "brakes",
+        "lights",
+        "reefer",
+        "securement",
+    ],
+    "fatigue_hos": [
+        "fatigue",
+        "hours of service",
+        "hos",
+        "reset",
+        "rest",
+        "break",
+        "sleep",
+        "alert",
+    ],
+    "backing_customer_site": [
+        "backing",
+        "dock",
+        "yard",
+        "customer site",
+        "spotter",
+        "forklift",
+        "pedestrian",
+        "loading area",
+    ],
+}
 
 
 def has_openai_key() -> bool:
@@ -35,9 +133,9 @@ def week_sort_key(week_name: str) -> tuple[int, int]:
     return (int(match.group(1)), int(match.group(2)))
 
 
-def find_previous_week_dir(current_week: str) -> Optional[Path]:
+def find_previous_week_dirs(current_week: str, limit: int = MAX_PREVIOUS_WEEKS) -> List[Path]:
     if not OUTPUT_DIR.exists():
-        return None
+        return []
 
     week_dirs = [
         path
@@ -51,55 +149,143 @@ def find_previous_week_dir(current_week: str) -> Optional[Path]:
         if week_sort_key(path.name) < week_sort_key(current_week)
     ]
 
-    if not previous_dirs:
-        return None
+    previous_dirs = sorted(previous_dirs, key=lambda path: week_sort_key(path.name), reverse=True)
 
-    return sorted(previous_dirs, key=lambda path: week_sort_key(path.name))[-1]
+    return previous_dirs[:limit]
 
 
-def load_previous_section(client: Dict[str, Any], content_type: str) -> str:
-    current_week = get_current_week_key()
-    previous_week_dir = find_previous_week_dir(current_week)
-
-    if not previous_week_dir:
-        return ""
-
-    client_id = str(client.get("client_id", "")).strip()
-
-    if not client_id:
-        return ""
-
-    section_path = previous_week_dir / client_id / f"{content_type}.md"
-
-    if not section_path.exists():
+def read_section_excerpt(path: Path, max_chars: int = MAX_SECTION_CHARS) -> str:
+    if not path.exists():
         return ""
 
     try:
-        text = section_path.read_text(encoding="utf-8", errors="replace").strip()
+        text = path.read_text(encoding="utf-8", errors="replace").strip()
     except Exception:
         return ""
 
     if not text:
         return ""
 
-    max_chars = 3500
-
     if len(text) > max_chars:
         text = text[:max_chars].rsplit("\n", 1)[0].strip()
 
+    return text
+
+
+def load_recent_sections(client: Dict[str, Any], content_type: str) -> List[Dict[str, str]]:
+    current_week = get_current_week_key()
+    previous_week_dirs = find_previous_week_dirs(current_week)
+
+    client_id = str(client.get("client_id", "")).strip()
+
+    if not client_id:
+        return []
+
+    recent_sections: List[Dict[str, str]] = []
+
+    for week_dir in previous_week_dirs:
+        section_path = week_dir / client_id / f"{content_type}.md"
+        text = read_section_excerpt(section_path)
+
+        if not text:
+            continue
+
+        recent_sections.append(
+            {
+                "week": week_dir.name,
+                "content_type": content_type,
+                "text": text,
+            }
+        )
+
+    return recent_sections
+
+
+def count_keyword_groups(text: str) -> Dict[str, int]:
+    lowered = text.lower()
+    counts: Dict[str, int] = {}
+
+    for group, keywords in TREND_KEYWORDS.items():
+        count = 0
+
+        for keyword in keywords:
+            count += lowered.count(keyword.lower())
+
+        if count:
+            counts[group] = count
+
+    return counts
+
+
+def summarize_trend_counts(recent_sections: List[Dict[str, str]]) -> List[str]:
+    combined_counts: Dict[str, int] = {}
+
+    for section in recent_sections:
+        counts = count_keyword_groups(section["text"])
+
+        for group, count in counts.items():
+            combined_counts[group] = combined_counts.get(group, 0) + count
+
+    if not combined_counts:
+        return []
+
+    sorted_groups = sorted(combined_counts.items(), key=lambda item: item[1], reverse=True)
+
+    trend_labels = {
+        "weather": "weather / seasonal road conditions",
+        "detention": "detention and appointment pressure",
+        "parking": "parking and staging limits",
+        "congestion": "metro congestion and routing pressure",
+        "paperwork": "paperwork and documentation",
+        "equipment": "equipment inspections and maintenance",
+        "fatigue_hos": "fatigue and hours-of-service planning",
+        "backing_customer_site": "backing, dock, and customer-site safety",
+    }
+
+    return [
+        f"{trend_labels.get(group, group)} appeared repeatedly"
+        for group, _ in sorted_groups[:5]
+    ]
+
+
+def build_recent_history_context(client: Dict[str, Any], content_type: str) -> str:
+    recent_sections = load_recent_sections(client, content_type)
+
+    if not recent_sections:
+        return """
+Recent history:
+No previous sections were available for this client/content type.
+Write this as a fresh first-run section.
+"""
+
+    trend_lines = summarize_trend_counts(recent_sections)
+
+    trend_text = "\n".join(f"- {line}" for line in trend_lines) if trend_lines else "- No strong recurring trend detected."
+
+    excerpts = []
+
+    for section in recent_sections:
+        excerpts.append(
+            f"""
+--- {section['week']} / {section['content_type']} excerpt ---
+{section['text']}
+"""
+        )
+
     return f"""
-Previous week reference:
-Week: {previous_week_dir.name}
-Client: {client.get("company_name", client_id)}
-Section: {content_type}
+Recent history:
+The following prior sections were found for this client/content type.
 
-Use this only for continuity and variation.
-Do not copy it.
-Do not repeat the same hooks, examples, sentence patterns, or section phrasing.
-Keep recurring operational themes if they still fit, but make this week's section feel fresh.
+Detected recurring operational themes:
+{trend_text}
 
-Previous section excerpt:
-{text}
+Use this history for continuity and variation.
+Do not copy prior wording.
+Do not repeat the same hooks, section order, sentence patterns, or lane descriptions.
+Keep recurring operational themes if they still fit, but rotate emphasis so this week feels like the next real weekly packet.
+
+Recent excerpts:
+{chr(10).join(excerpts)}
 """
 
 
@@ -157,9 +343,10 @@ Global rules:
 - Keep claims grounded in the company context.
 - Write clearly for trucking operators, drivers, dispatchers, and recruiters.
 - Do not include markdown code fences.
-- If previous-week content is provided, use it for continuity only.
-- Do not copy previous-week wording.
-- Avoid repeating the same post hooks, lane descriptions, and sentence patterns from the previous week.
+- If recent history is provided, use it for continuity only.
+- Do not copy recent-history wording.
+- Avoid repeating the same post hooks, lane descriptions, and sentence patterns from recent weeks.
+- Preserve operational continuity while rotating emphasis.
 """
 
     section_roles = {
@@ -179,7 +366,7 @@ Priorities:
 - Mention equipment, region, lane realities, driver expectations, and communication style.
 - Make the job sound credible, not inflated.
 - Include contact information in each post.
-- If previous-week recruiting posts are provided, vary the opening hooks and avoid repeating the same pitch structure.
+- If recent recruiting posts are provided, vary the opening hooks and avoid repeating the same pitch structure.
 
 Structure:
 - Start with "# Recruiting Posts".
@@ -202,7 +389,7 @@ Priorities:
 - One paperwork, detention, or customer-delay post.
 - One recruiting reality-check post.
 - Keep each post tight and usable on LinkedIn/Facebook.
-- If previous-week social posts are provided, change the angles and phrasing.
+- If recent social posts are provided, change the angles and phrasing.
 
 Structure:
 - Start with "# Social Posts".
@@ -227,7 +414,7 @@ Priorities:
 - Backing and customer-site safety.
 - Documentation and dispatch communication.
 - Make it feel like it came from safety/operations, not recruiting.
-- If previous-week safety reminders are provided, keep recurring safety priorities but rotate the emphasis.
+- If recent safety reminders are provided, keep recurring safety priorities but rotate the emphasis.
 
 Structure:
 - Start with "# Safety Reminders".
@@ -254,7 +441,7 @@ Priorities:
 - HOS/fatigue.
 - Weekly priorities.
 - This should sound like it is for current drivers and dispatch, not new applicants.
-- If previous-week company update is provided, preserve continuity but avoid repeating the same wording.
+- If recent company updates are provided, preserve continuity but avoid repeating the same wording.
 
 Structure:
 - Start with "# Company Update".
@@ -278,7 +465,8 @@ Priorities:
 - Weather, parking, detention, fuel/routing, documentation, and driver safety.
 - Make the lane notes feel specific to the region and equipment.
 - Focus on freight movement and operational reality.
-- If previous-week freight digest is provided, avoid repeating the same lane commentary word-for-word and vary operational emphasis.
+- If recent freight digests are provided, avoid repeating the same lane commentary word-for-word and vary operational emphasis.
+- Use the trend history to rotate analysis focus across weeks.
 
 Structure:
 - Start with "# Freight Digest".
@@ -307,27 +495,22 @@ Structure:
 
 def build_prompt(client: Dict[str, Any], content_type: str) -> str:
     context = build_company_context(client, content_type)
-    previous_section = load_previous_section(client, content_type)
-
-    previous_context_note = previous_section or """
-Previous week reference:
-No previous-week section was available for this client/content type.
-Write this as a fresh first-run section.
-"""
+    recent_history = build_recent_history_context(client, content_type)
 
     return f"""
 Use the company context below to write the requested section.
 
 {context}
 
-{previous_context_note}
+{recent_history}
 
 Important:
 - Only use details supported by the company context.
 - Do not add unlisted pay numbers, bonuses, guarantees, benefits, dedicated lanes, or policy claims.
 - Mention practical trucking realities.
 - Make the output client-ready.
-- Keep this week's content distinct from the previous week when previous-week content is available.
+- Keep this week's content distinct from recent weeks when recent-history content is available.
+- Use trend history to continue the operational narrative without sounding repetitive.
 """
 
 
@@ -357,7 +540,7 @@ def generate_ai_content(
                     "content": build_prompt(client, content_type),
                 },
             ],
-            temperature=0.68,
+            temperature=0.7,
         )
 
         text = response.choices[0].message.content
