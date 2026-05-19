@@ -82,6 +82,73 @@ def build_ai_summary(week_dir: Path, clients: List[Dict[str, Any]]) -> List[str]
     return lines
 
 
+def build_ai_memory_summary(week_dir: Path) -> List[str]:
+    memory_path = week_dir / "ai_memory_report.json"
+    memory_report = load_json(memory_path)
+
+    lines = [
+        "## AI Memory Status",
+        "",
+    ]
+
+    if not memory_report:
+        lines.extend(
+            [
+                "Status: ⚠️ missing `ai_memory_report.json`",
+                "",
+            ]
+        )
+        return lines
+
+    week = memory_report.get("week", week_dir.name)
+    updated_at = memory_report.get("updated_at", "")
+    max_previous_weeks = memory_report.get("max_previous_weeks", "")
+    clients = memory_report.get("clients", {})
+
+    lines.extend(
+        [
+            f"Status: ✅ active",
+            f"Week: `{week}`",
+            f"Updated At: `{updated_at}`",
+            f"Max Previous Weeks: `{max_previous_weeks}`",
+            "",
+            "| Client | Sections With Memory | Prior Weeks Used | Top Trend Themes |",
+            "|---|---:|---|---|",
+        ]
+    )
+
+    for client_id, client_record in clients.items():
+        company_name = client_record.get("company_name", client_id)
+        sections = client_record.get("sections", {})
+
+        memory_sections = []
+        prior_weeks = []
+        trend_themes = []
+
+        for section_name, section_record in sections.items():
+            if section_record.get("memory_available"):
+                memory_sections.append(section_name)
+
+            for week_value in section_record.get("prior_weeks_used", []):
+                if week_value not in prior_weeks:
+                    prior_weeks.append(week_value)
+
+            for theme in section_record.get("trend_themes_detected", []):
+                if theme not in trend_themes:
+                    trend_themes.append(theme)
+
+        memory_count = len(memory_sections)
+        prior_weeks_text = ", ".join(prior_weeks) if prior_weeks else "none"
+        trend_text = ", ".join(trend_themes[:5]) if trend_themes else "none"
+
+        lines.append(
+            f"| {company_name} | `{memory_count}` | {prior_weeks_text} | {trend_text} |"
+        )
+
+    lines.append("")
+    return lines
+
+
 def build_quality_summary(content_quality_report: Optional[Dict[str, Any]]) -> List[str]:
     lines = [
         "## Content Quality Guardrail",
@@ -273,10 +340,12 @@ def build_summary(week_dir: Path) -> str:
     lines.extend(build_email_summary(manifest))
     lines.extend(build_quality_summary(content_quality_report))
     lines.extend(build_ai_summary(week_dir, clients))
+    lines.extend(build_ai_memory_summary(week_dir))
     lines.extend(build_client_delivery_table(clients))
 
     email_failed = manifest.get("email_failed_client_count", 0)
     email_mode = manifest.get("email_mode", "not_run")
+    ai_memory_report = load_json(week_dir / "ai_memory_report.json")
 
     if email_mode == "real":
         email_readiness = "- Email delivery: ✅" if email_failed == 0 else "- Email delivery: ❌"
@@ -291,6 +360,7 @@ def build_summary(week_dir: Path) -> str:
             "",
             "- Multi-client generation: ✅",
             "- Full AI content generation: ✅",
+            "- AI memory report: ✅" if ai_memory_report else "- AI memory report: ⚠️ missing",
             "- Fallback protection: ✅",
             "- Content quality report: ✅" if content_quality_report else "- Content quality report: ❌",
             "- Drive upload: ✅" if manifest.get("drive_upload_failed_client_count", 0) == 0 else "- Drive upload: ❌",
