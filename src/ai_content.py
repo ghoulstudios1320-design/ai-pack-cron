@@ -1,11 +1,106 @@
 import os
-from typing import Dict, Any
+import re
+from datetime import date
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 from openai import OpenAI
 
 
+ROOT_DIR = Path(__file__).resolve().parents[1]
+OUTPUT_DIR = ROOT_DIR / "output"
+
+
 def has_openai_key() -> bool:
     return bool(os.getenv("OPENAI_API_KEY", "").strip())
+
+
+def get_current_week_key() -> str:
+    override = os.getenv("WEEK_KEY", "").strip()
+
+    if override:
+        return override
+
+    today = date.today()
+    iso_year, iso_week, _ = today.isocalendar()
+    return f"{iso_year}-W{iso_week:02d}"
+
+
+def week_sort_key(week_name: str) -> tuple[int, int]:
+    match = re.match(r"^(\d{4})-W(\d{2})$", week_name)
+
+    if not match:
+        return (0, 0)
+
+    return (int(match.group(1)), int(match.group(2)))
+
+
+def find_previous_week_dir(current_week: str) -> Optional[Path]:
+    if not OUTPUT_DIR.exists():
+        return None
+
+    week_dirs = [
+        path
+        for path in OUTPUT_DIR.iterdir()
+        if path.is_dir() and re.match(r"^\d{4}-W\d{2}$", path.name)
+    ]
+
+    previous_dirs = [
+        path
+        for path in week_dirs
+        if week_sort_key(path.name) < week_sort_key(current_week)
+    ]
+
+    if not previous_dirs:
+        return None
+
+    return sorted(previous_dirs, key=lambda path: week_sort_key(path.name))[-1]
+
+
+def load_previous_section(client: Dict[str, Any], content_type: str) -> str:
+    current_week = get_current_week_key()
+    previous_week_dir = find_previous_week_dir(current_week)
+
+    if not previous_week_dir:
+        return ""
+
+    client_id = str(client.get("client_id", "")).strip()
+
+    if not client_id:
+        return ""
+
+    section_path = previous_week_dir / client_id / f"{content_type}.md"
+
+    if not section_path.exists():
+        return ""
+
+    try:
+        text = section_path.read_text(encoding="utf-8", errors="replace").strip()
+    except Exception:
+        return ""
+
+    if not text:
+        return ""
+
+    max_chars = 3500
+
+    if len(text) > max_chars:
+        text = text[:max_chars].rsplit("\n", 1)[0].strip()
+
+    return f"""
+Previous week reference:
+Week: {previous_week_dir.name}
+Client: {client.get("company_name", client_id)}
+Section: {content_type}
+
+Use this only for continuity and variation.
+Do not copy it.
+Do not repeat the same hooks, examples, sentence patterns, or section phrasing.
+Keep recurring operational themes if they still fit, but make this week's section feel fresh.
+
+Previous section excerpt:
+{text}
+"""
 
 
 def build_company_context(client: Dict[str, Any], content_type: str) -> str:
@@ -62,6 +157,9 @@ Global rules:
 - Keep claims grounded in the company context.
 - Write clearly for trucking operators, drivers, dispatchers, and recruiters.
 - Do not include markdown code fences.
+- If previous-week content is provided, use it for continuity only.
+- Do not copy previous-week wording.
+- Avoid repeating the same post hooks, lane descriptions, and sentence patterns from the previous week.
 """
 
     section_roles = {
@@ -81,6 +179,7 @@ Priorities:
 - Mention equipment, region, lane realities, driver expectations, and communication style.
 - Make the job sound credible, not inflated.
 - Include contact information in each post.
+- If previous-week recruiting posts are provided, vary the opening hooks and avoid repeating the same pitch structure.
 
 Structure:
 - Start with "# Recruiting Posts".
@@ -103,6 +202,7 @@ Priorities:
 - One paperwork, detention, or customer-delay post.
 - One recruiting reality-check post.
 - Keep each post tight and usable on LinkedIn/Facebook.
+- If previous-week social posts are provided, change the angles and phrasing.
 
 Structure:
 - Start with "# Social Posts".
@@ -127,6 +227,7 @@ Priorities:
 - Backing and customer-site safety.
 - Documentation and dispatch communication.
 - Make it feel like it came from safety/operations, not recruiting.
+- If previous-week safety reminders are provided, keep recurring safety priorities but rotate the emphasis.
 
 Structure:
 - Start with "# Safety Reminders".
@@ -153,6 +254,7 @@ Priorities:
 - HOS/fatigue.
 - Weekly priorities.
 - This should sound like it is for current drivers and dispatch, not new applicants.
+- If previous-week company update is provided, preserve continuity but avoid repeating the same wording.
 
 Structure:
 - Start with "# Company Update".
@@ -176,6 +278,7 @@ Priorities:
 - Weather, parking, detention, fuel/routing, documentation, and driver safety.
 - Make the lane notes feel specific to the region and equipment.
 - Focus on freight movement and operational reality.
+- If previous-week freight digest is provided, avoid repeating the same lane commentary word-for-word and vary operational emphasis.
 
 Structure:
 - Start with "# Freight Digest".
@@ -204,17 +307,27 @@ Structure:
 
 def build_prompt(client: Dict[str, Any], content_type: str) -> str:
     context = build_company_context(client, content_type)
+    previous_section = load_previous_section(client, content_type)
+
+    previous_context_note = previous_section or """
+Previous week reference:
+No previous-week section was available for this client/content type.
+Write this as a fresh first-run section.
+"""
 
     return f"""
 Use the company context below to write the requested section.
 
 {context}
 
+{previous_context_note}
+
 Important:
 - Only use details supported by the company context.
 - Do not add unlisted pay numbers, bonuses, guarantees, benefits, dedicated lanes, or policy claims.
 - Mention practical trucking realities.
 - Make the output client-ready.
+- Keep this week's content distinct from the previous week when previous-week content is available.
 """
 
 
@@ -244,7 +357,7 @@ def generate_ai_content(
                     "content": build_prompt(client, content_type),
                 },
             ],
-            temperature=0.65,
+            temperature=0.68,
         )
 
         text = response.choices[0].message.content
