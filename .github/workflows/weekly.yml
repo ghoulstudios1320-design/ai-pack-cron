@@ -2,6 +2,11 @@ name: weekly-pack
 
 on:
   workflow_dispatch:
+    inputs:
+      week_key:
+        description: "Optional test week key, example: 2026-W22"
+        required: false
+        default: ""
   schedule:
     - cron: "0 13 * * 1"
 
@@ -11,6 +16,7 @@ jobs:
 
     env:
       PYTHONPATH: ${{ github.workspace }}
+      WEEK_KEY: ${{ github.event.inputs.week_key }}
 
     steps:
       - name: Check out repo
