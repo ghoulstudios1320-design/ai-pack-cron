@@ -8,27 +8,25 @@ def has_openai_key() -> bool:
     return bool(os.getenv("OPENAI_API_KEY", "").strip())
 
 
-def build_prompt(client: Dict[str, Any], content_type: str) -> str:
+def build_company_context(client: Dict[str, Any], content_type: str) -> str:
     company = client.get("company_name", "the carrier")
+    fleet_size = client.get("fleet_size", "regional fleet")
     region = client.get("region", "regional lanes")
     equipment = client.get("equipment", "tractor-trailer")
+    operation_type = client.get("operation_type", "regional trucking")
     hiring_for = client.get("hiring_for", "CDL-A drivers")
     target_driver = client.get("target_driver", "experienced CDL-A drivers")
     experience_required = client.get("experience_required", "CDL-A experience preferred")
     home_time = client.get("home_time", "home time varies by lane")
     pay_angle = client.get("pay_angle", "steady freight and practical dispatch communication")
-    operation_type = client.get("operation_type", "regional trucking")
     lanes = ", ".join(client.get("common_lanes", [])) or region
     pain_points = ", ".join(client.get("pain_points", [])) or "weather, detention, parking, and appointment pressure"
     benefits = ", ".join(client.get("benefits", [])) or "clear communication, safe routing, and practical dispatch support"
-    fleet_size = client.get("fleet_size", "regional fleet")
     contact_email = client.get("contact_email", "")
     contact_phone = client.get("contact_phone", "")
     website = client.get("website", "")
 
-    base = f"""
-You are writing operationally realistic trucking company content.
-
+    return f"""
 Company: {company}
 Fleet size: {fleet_size}
 Region: {region}
@@ -46,85 +44,178 @@ Contact email: {contact_email}
 Contact phone: {contact_phone}
 Website: {website}
 Content type: {content_type}
+"""
 
-Rules:
-- Write like a real trucking operations/recruiting coordinator.
-- No fake pay numbers.
-- No fake guarantees.
-- No exaggerated marketing claims.
-- Do not invent bonuses, sign-on offers, home-time guarantees, mileage guarantees, dedicated lanes, or benefits not listed.
-- Mention practical trucking realities.
-- Keep it useful, grounded, and client-ready.
-- Use clear markdown headings.
+
+def build_system_prompt(content_type: str) -> str:
+    base_rules = """
+You are generating trucking fleet communication content.
+
+Global rules:
+- Be operationally realistic.
+- Do not invent pay numbers.
+- Do not invent bonuses.
+- Do not invent guarantees.
+- Do not invent benefits that are not provided.
+- Do not claim guaranteed home time, guaranteed miles, or guaranteed pay.
+- Avoid hype language like "best", "unbeatable", "top paying", or "dream job".
+- Keep claims grounded in the company context.
+- Write clearly for trucking operators, drivers, dispatchers, and recruiters.
 - Do not include markdown code fences.
 """
 
-    if content_type == "freight_digest":
-        return base + """
-Freight digest requirements:
-- Start with "# Freight Digest".
-- Include a short operational overview.
-- Include lane-specific notes.
-- Include weather, parking, detention, fuel/routing, documentation, and driver safety notes.
-- Make the content specific to the carrier's region, lanes, equipment, and pain points.
-- Avoid repeating the exact same wording under every lane.
-"""
+    section_roles = {
+        "recruiting_posts": """
+Role:
+You are a trucking fleet recruiter writing honest CDL-A recruiting copy.
 
-    if content_type == "safety_reminders":
-        return base + """
-Safety reminders requirements:
-- Start with "# Safety Reminders".
-- Write for active drivers, not corporate executives.
-- Include equipment-specific reminders.
-- Include route/weather/customer safety.
-- Include parking, fatigue, backing, documentation, and dispatch communication.
-- Keep the tone firm, practical, and safety-first.
-- Do not invent accidents, violations, pay, bonuses, or guarantees.
-- Make the reminders specific to the carrier's region, lanes, equipment, and pain points.
-"""
+Voice:
+- Driver-facing.
+- Practical.
+- Direct.
+- Respectful of experienced drivers.
+- No fake excitement or mega-carrier hype.
 
-    if content_type == "company_update":
-        return base + """
-Company update requirements:
-- Start with "# Company Update".
-- Write as a weekly driver-facing operations update.
-- Include quick status, lane notes, operating risks, paperwork/detention, equipment/maintenance, HOS/fatigue, and weekly priorities.
-- Make it specific to the carrier's region, equipment, lanes, and pain points.
-- Keep the tone professional, practical, and dispatch-realistic.
-- Do not invent company announcements, accidents, pay changes, bonuses, policy changes, or guarantees.
-- Do not make legal or regulatory claims beyond normal safe trucking practices.
-"""
+Priorities:
+- Explain the real operating fit.
+- Mention equipment, region, lane realities, driver expectations, and communication style.
+- Make the job sound credible, not inflated.
+- Include contact information in each post.
 
-    if content_type == "social_posts":
-        return base + """
-Social posts requirements:
+Structure:
+- Start with "# Recruiting Posts".
+- Write exactly 5 posts.
+- Use headings like "### Post 1 - CDL-A Regional Opportunity".
+- Each post should feel slightly different, not copy-pasted.
+""",
+        "social_posts": """
+Role:
+You are a trucking company social media coordinator writing short operational posts.
+
+Voice:
+- Public-facing.
+- Shorter and punchier than the internal sections.
+- Clear enough for drivers, prospects, and customers.
+- No corporate fluff.
+
+Priorities:
+- One safety/operations post.
+- One paperwork, detention, or customer-delay post.
+- One recruiting reality-check post.
+- Keep each post tight and usable on LinkedIn/Facebook.
+
+Structure:
 - Start with "# Social Posts".
 - Write exactly 3 posts.
-- Use headings like "Post 1 - Weather & Route Awareness".
-- Keep each post practical and realistic.
-- Include one safety/operations post, one paperwork/detention/customer-delay post, and one recruiting/reality-check post.
-- Mention the company name naturally.
-- Include contact info only where it fits.
-- Do not invent pay, guarantees, bonuses, lanes, benefits, or policies.
-- Avoid hype language like "best", "guaranteed", "unbeatable", or "top paying".
-"""
+- Use headings like "### Post 1 - Weather & Route Awareness".
+- Keep each post concise.
+""",
+        "safety_reminders": """
+Role:
+You are a fleet safety manager writing weekly driver safety reminders.
 
-    if content_type == "recruiting_posts":
-        return base + """
-Recruiting posts requirements:
-- Start with "# Recruiting Posts".
-- Write exactly 5 recruiting posts.
-- Use headings like "Post 1 - CDL-A Regional Opportunity".
-- Keep the tone honest, grounded, and driver-facing.
-- Sell the real operating fit without sounding like fake mega-carrier marketing.
-- Mention equipment, region, lane realities, driver expectations, and communication style.
-- Include the provided contact info or website in each post.
-- Do not invent pay numbers, bonuses, guaranteed home time, guaranteed miles, dedicated routes, benefits, or policies.
-- Do not say "apply today for top pay" or anything similar.
-- Avoid hype language like "best", "guaranteed", "unbeatable", or "top paying".
-"""
+Voice:
+- Firm.
+- Practical.
+- Safety-first.
+- Driver-respectful, not preachy.
 
-    return base
+Priorities:
+- Equipment-specific safety.
+- Route and weather awareness.
+- Parking and fatigue.
+- Backing and customer-site safety.
+- Documentation and dispatch communication.
+- Make it feel like it came from safety/operations, not recruiting.
+
+Structure:
+- Start with "# Safety Reminders".
+- Use clear section headings.
+- Prefer bullet points where useful.
+- Avoid sales language.
+""",
+        "company_update": """
+Role:
+You are an operations manager writing a weekly internal fleet update.
+
+Voice:
+- Internal.
+- Calm.
+- Dispatch-aware.
+- Focused on execution and weekly priorities.
+
+Priorities:
+- Quick status.
+- Lane notes.
+- Operating risks.
+- Paperwork/detention.
+- Equipment/maintenance.
+- HOS/fatigue.
+- Weekly priorities.
+- This should sound like it is for current drivers and dispatch, not new applicants.
+
+Structure:
+- Start with "# Company Update".
+- Use operational headings.
+- Keep it organized and practical.
+- Avoid recruiting language except contact info where naturally needed.
+""",
+        "freight_digest": """
+Role:
+You are a trucking operations analyst writing a freight and lane digest.
+
+Voice:
+- Analytical.
+- Grounded.
+- Lane-specific.
+- Less emotional than recruiting or social.
+
+Priorities:
+- Operational overview.
+- Lane-specific notes.
+- Weather, parking, detention, fuel/routing, documentation, and driver safety.
+- Make the lane notes feel specific to the region and equipment.
+- Focus on freight movement and operational reality.
+
+Structure:
+- Start with "# Freight Digest".
+- Use clear headings.
+- Include lane-specific subsections.
+- Avoid recruiter-style language until a short final contact line, if needed.
+""",
+    }
+
+    return base_rules + "\n" + section_roles.get(
+        content_type,
+        """
+Role:
+You are a trucking operations communicator.
+
+Voice:
+- Practical.
+- Clear.
+- Grounded.
+
+Structure:
+- Use clear headings.
+""",
+    )
+
+
+def build_prompt(client: Dict[str, Any], content_type: str) -> str:
+    context = build_company_context(client, content_type)
+
+    return f"""
+Use the company context below to write the requested section.
+
+{context}
+
+Important:
+- Only use details supported by the company context.
+- Do not add unlisted pay numbers, bonuses, guarantees, benefits, dedicated lanes, or policy claims.
+- Mention practical trucking realities.
+- Make the output client-ready.
+"""
 
 
 def generate_ai_content(
@@ -146,14 +237,14 @@ def generate_ai_content(
             messages=[
                 {
                     "role": "system",
-                    "content": "You generate concise, operationally realistic trucking fleet content.",
+                    "content": build_system_prompt(content_type),
                 },
                 {
                     "role": "user",
                     "content": build_prompt(client, content_type),
                 },
             ],
-            temperature=0.7,
+            temperature=0.65,
         )
 
         text = response.choices[0].message.content
