@@ -189,6 +189,16 @@ def escape_pdf_text(text: str) -> str:
     )
 
 
+def markdown_to_reportlab(text: str) -> str:
+    escaped = escape_pdf_text(text)
+
+    # Convert simple markdown bold into ReportLab bold tags.
+    # Example: **Date:** This week -> <b>Date:</b> This week
+    escaped = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", escaped)
+
+    return escaped
+
+
 def write_text_file(path: Path, content: str) -> None:
     path.write_text(clean_text_spacing(content) + "\n", encoding="utf-8")
 
