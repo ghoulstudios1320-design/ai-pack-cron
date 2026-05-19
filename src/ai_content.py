@@ -1,8 +1,9 @@
+import json
 import os
 import re
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from openai import OpenAI
 
@@ -10,103 +11,24 @@ from openai import OpenAI
 ROOT_DIR = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = ROOT_DIR / "output"
 
-
 MAX_PREVIOUS_WEEKS = 3
 MAX_SECTION_CHARS = 2200
 
 
 TREND_KEYWORDS = {
-    "weather": [
-        "weather",
-        "winter",
-        "snow",
-        "ice",
-        "rain",
-        "fog",
-        "wind",
-        "storm",
-        "slick roads",
-        "reduced visibility",
-        "great lakes",
-        "mountain",
-        "chains",
-    ],
-    "detention": [
-        "detention",
-        "wait time",
-        "waiting",
-        "dock delay",
-        "warehouse delay",
-        "loading delay",
-        "unloading delay",
-        "appointment",
-    ],
-    "parking": [
-        "parking",
-        "staging",
-        "overnight parking",
-        "safe parking",
-        "truck stop",
-        "rest area",
-        "limited parking",
-    ],
-    "congestion": [
-        "congestion",
-        "traffic",
-        "metro",
-        "rush hour",
-        "urban",
-        "chicago",
-        "detroit",
-        "milwaukee",
-        "columbus",
-        "indianapolis",
-    ],
-    "paperwork": [
-        "paperwork",
-        "bol",
-        "pod",
-        "documentation",
-        "documents",
-        "timestamps",
-        "arrival time",
-        "release time",
-        "signatures",
-    ],
-    "equipment": [
-        "equipment",
-        "tractor",
-        "trailer",
-        "maintenance",
-        "pre-trip",
-        "post-trip",
-        "tires",
-        "brakes",
-        "lights",
-        "reefer",
-        "securement",
-    ],
-    "fatigue_hos": [
-        "fatigue",
-        "hours of service",
-        "hos",
-        "reset",
-        "rest",
-        "break",
-        "sleep",
-        "alert",
-    ],
-    "backing_customer_site": [
-        "backing",
-        "dock",
-        "yard",
-        "customer site",
-        "spotter",
-        "forklift",
-        "pedestrian",
-        "loading area",
-    ],
+    "weather": ["weather", "winter", "snow", "ice", "rain", "fog", "wind", "storm", "slick roads", "reduced visibility", "great lakes", "mountain", "chains"],
+    "detention": ["detention", "wait time", "waiting", "dock delay", "warehouse delay", "loading delay", "unloading delay", "appointment"],
+    "parking": ["parking", "staging", "overnight parking", "safe parking", "truck stop", "rest area", "limited parking"],
+    "congestion": ["congestion", "traffic", "metro", "rush hour", "urban", "chicago", "detroit", "milwaukee", "columbus", "indianapolis"],
+    "paperwork": ["paperwork", "bol", "pod", "documentation", "documents", "timestamps", "arrival time", "release time", "signatures"],
+    "equipment": ["equipment", "tractor", "trailer", "maintenance", "pre-trip", "post-trip", "tires", "brakes", "lights", "reefer", "securement"],
+    "fatigue_hos": ["fatigue", "hours of service", "hos", "reset", "rest", "break", "sleep", "alert"],
+    "backing_customer_site": ["backing", "dock", "yard", "customer site", "spotter", "forklift", "pedestrian", "loading area"],
 }
+
+
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 
 def has_openai_key() -> bool:
@@ -115,7 +37,6 @@ def has_openai_key() -> bool:
 
 def get_current_week_key() -> str:
     override = os.getenv("WEEK_KEY", "").strip()
-
     if override:
         return override
 
@@ -126,10 +47,8 @@ def get_current_week_key() -> str:
 
 def week_sort_key(week_name: str) -> tuple[int, int]:
     match = re.match(r"^(\d{4})-W(\d{2})$", week_name)
-
     if not match:
         return (0, 0)
-
     return (int(match.group(1)), int(match.group(2)))
 
 
@@ -150,7 +69,6 @@ def find_previous_week_dirs(current_week: str, limit: int = MAX_PREVIOUS_WEEKS) 
     ]
 
     previous_dirs = sorted(previous_dirs, key=lambda path: week_sort_key(path.name), reverse=True)
-
     return previous_dirs[:limit]
 
 
@@ -177,7 +95,6 @@ def load_recent_sections(client: Dict[str, Any], content_type: str) -> List[Dict
     previous_week_dirs = find_previous_week_dirs(current_week)
 
     client_id = str(client.get("client_id", "")).strip()
-
     if not client_id:
         return []
 
@@ -207,7 +124,6 @@ def count_keyword_groups(text: str) -> Dict[str, int]:
 
     for group, keywords in TREND_KEYWORDS.items():
         count = 0
-
         for keyword in keywords:
             count += lowered.count(keyword.lower())
 
@@ -243,13 +159,69 @@ def summarize_trend_counts(recent_sections: List[Dict[str, str]]) -> List[str]:
     }
 
     return [
-        f"{trend_labels.get(group, group)} appeared repeatedly"
+        trend_labels.get(group, group)
         for group, _ in sorted_groups[:5]
     ]
 
 
+def memory_report_path() -> Path:
+    week = get_current_week_key()
+    week_dir = OUTPUT_DIR / week
+    week_dir.mkdir(parents=True, exist_ok=True)
+    return week_dir / "ai_memory_report.json"
+
+
+def write_ai_memory_report(
+    client: Dict[str, Any],
+    content_type: str,
+    recent_sections: List[Dict[str, str]],
+    trend_themes: List[str],
+) -> None:
+    path = memory_report_path()
+
+    if path.exists():
+        try:
+            report = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            report = {}
+    else:
+        report = {}
+
+    current_week = get_current_week_key()
+    client_id = str(client.get("client_id", "")).strip()
+    company_name = str(client.get("company_name", client_id)).strip()
+
+    report.setdefault("week", current_week)
+    report["updated_at"] = now_iso()
+    report.setdefault("max_previous_weeks", MAX_PREVIOUS_WEEKS)
+    report.setdefault("clients", {})
+
+    client_record = report["clients"].setdefault(
+        client_id,
+        {
+            "client_id": client_id,
+            "company_name": company_name,
+            "sections": {},
+        },
+    )
+
+    client_record["sections"][content_type] = {
+        "content_type": content_type,
+        "memory_available": bool(recent_sections),
+        "prior_weeks_used": [section["week"] for section in recent_sections],
+        "prior_section_count": len(recent_sections),
+        "trend_themes_detected": trend_themes,
+        "recorded_at": now_iso(),
+    }
+
+    path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+
+
 def build_recent_history_context(client: Dict[str, Any], content_type: str) -> str:
     recent_sections = load_recent_sections(client, content_type)
+    trend_themes = summarize_trend_counts(recent_sections)
+
+    write_ai_memory_report(client, content_type, recent_sections, trend_themes)
 
     if not recent_sections:
         return """
@@ -258,9 +230,7 @@ No previous sections were available for this client/content type.
 Write this as a fresh first-run section.
 """
 
-    trend_lines = summarize_trend_counts(recent_sections)
-
-    trend_text = "\n".join(f"- {line}" for line in trend_lines) if trend_lines else "- No strong recurring trend detected."
+    trend_text = "\n".join(f"- {line} appeared repeatedly" for line in trend_themes) if trend_themes else "- No strong recurring trend detected."
 
     excerpts = []
 
