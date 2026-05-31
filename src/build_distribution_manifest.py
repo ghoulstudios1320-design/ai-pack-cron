@@ -53,13 +53,17 @@ def build_distribution_manifest(master_index: Dict[str, Any]) -> Dict[str, Any]:
                 "markdown": client.get("markdown"),
                 "meta": client.get("meta"),
 
-                "drive_zip_url": None,
-                "drive_pdf_url": None,
-                "drive_markdown_url": None,
+                "artifact_storage": "github_actions",
                 "notion_url": None,
                 "webhook_sent": False,
                 "email_sent": False,
-                "delivery_status": "ready_for_upload",
+
+                "published_at": None,
+                "webhook_sent_at": None,
+                "email_sent_at": None,
+                "confirmed_at": None,
+
+                "delivery_status": "ready_for_delivery",
                 "error": None,
             }
         )
@@ -68,7 +72,15 @@ def build_distribution_manifest(master_index: Dict[str, Any]) -> Dict[str, Any]:
         "week": master_index.get("week"),
         "generated_at": master_index.get("generated_at"),
         "distribution_manifest_created_at": datetime.now(timezone.utc).isoformat(),
+        "artifact_storage": "github_actions",
         "client_count": len(clients),
+        "notion_published_client_count": 0,
+        "notion_publish_failed_client_count": 0,
+        "webhook_sent_client_count": 0,
+        "webhook_failed_client_count": 0,
+        "email_sent_client_count": 0,
+        "email_failed_client_count": 0,
+        "still_retry_pending_client_count": 0,
         "clients": clients,
     }
 
