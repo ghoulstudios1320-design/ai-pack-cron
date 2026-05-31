@@ -46,4 +46,31 @@
     "accent_color": "#F59E0B",
     "footer_color": "#111827"
   }
+
+"voice_profile": {
+  "tone": "straight-talking Midwest fleet",
+  "recruiting_style": "experienced-driver focused",
+  "company_personality": "no-nonsense, dependable, freight-first",
+  "driver_values": [
+    "predictable dispatch",
+    "steady freight",
+    "professionalism",
+    "safety"
+  ],
+  "avoid": [
+    "corporate buzzwords",
+    "generic motivation",
+    "overly enthusiastic marketing"
+  ]
+}
+
+
+
+
+
+
+
+
+
+
 }
