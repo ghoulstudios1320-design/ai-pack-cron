@@ -101,6 +101,28 @@ Rules:
 - If the section is company update, keep it professional and fleet-oriented.
 - If the section is freight digest, summarize freight/ops themes without pretending to know exact proprietary data.
 
+Quality Examples:
+Avoid this style:
+- "Join our growing team."
+- "We're excited to announce."
+- "Freight remains steady."
+- "As we move into another week."
+- "Drive with us today."
+- "Your safety is our top priority."
+
+Prefer this style:
+- "Drivers who are tired of guessing what dispatch will look like tomorrow should take a look."
+- "This is the third straight week where appointment pressure is showing up on the same lanes."
+- "If the reefer unit is acting strange at pickup, solve it there. Do not drag the problem 300 miles down I-5."
+- "Flatbed drivers know securement is not a checklist item. It is the job."
+- "If detention starts stacking up, call dispatch while there is still time to protect the appointment chain."
+- "I-80 freight is moving, but traffic and weather are still eating time around the same chokepoints."
+
+Writing Standard:
+- Use concrete trucking language.
+- Prefer driver-facing realism over marketing polish.
+- Make the section sound like it came from someone who has had to answer the phone when freight is late.
+- Do not use fake specifics, but do use the client’s actual lanes, equipment, region, and pain points.
 Return only the finished section content in Markdown.
 """
 
