@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from typing import Any, Dict, List
 
-ROOT_DIR = Path(**file**).resolve().parents[1]
+ROOT_DIR = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = ROOT_DIR / "output"
 
 def find_week_dir() -> Path:
