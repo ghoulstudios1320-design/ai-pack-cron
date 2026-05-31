@@ -46,9 +46,12 @@ def generate_ai_section(
     equipment_type = client_config.get("equipment_type", "commercial trucks")
     primary_lanes = client_config.get("primary_lanes", "regional freight lanes")
     voice = client_config.get("voice", "clear, practical, trucking-operations focused")
-
     memory_json = json.dumps(memory_context or {}, indent=2)
-
+    voice_profile = client_config.get("voice_profile", {})
+    voice_profile_json = json.dumps(
+    voice_profile,
+    indent=2
+)
     prompt = f"""
 You are generating a weekly trucking communication section for WHOA Weekly.
 
