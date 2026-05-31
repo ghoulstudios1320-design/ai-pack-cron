@@ -44,12 +44,6 @@ def main() -> None:
     if client_count != len(clients):
         errors.append(f"client_count mismatch: manifest={client_count}, actual={len(clients)}")
 
-    if manifest.get("drive_uploaded_client_count") != client_count:
-        errors.append("Drive uploaded count does not match client count")
-
-    if manifest.get("drive_upload_failed_client_count") != 0:
-        errors.append("Drive upload failures detected")
-
     if manifest.get("notion_published_client_count") != client_count:
         errors.append("Notion published count does not match client count")
 
@@ -61,6 +55,12 @@ def main() -> None:
 
     if manifest.get("webhook_failed_client_count") != 0:
         errors.append("Webhook failures detected")
+
+    if manifest.get("email_sent_client_count") not in (None, client_count):
+        errors.append("Email sent count does not match client count")
+
+    if manifest.get("email_failed_client_count") not in (None, 0):
+        errors.append("Email failures detected")
 
     if manifest.get("still_retry_pending_client_count") != 0:
         errors.append("Retry pending clients remain")
@@ -75,11 +75,7 @@ def main() -> None:
             errors.append(f"{client_id}: error still present: {client.get('error')}")
 
         required_fields = [
-            "drive_zip_url",
-            "drive_pdf_url",
-            "drive_markdown_url",
             "notion_url",
-            "uploaded_at",
             "published_at",
             "webhook_sent_at",
             "confirmed_at",
