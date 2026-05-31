@@ -141,7 +141,11 @@ def generate_all_ai_sections(
             memory_context=memory_context,
             fallback_text=fallbacks.get(section, ""),
         )
-        def generate_ai_content(
+
+    return results
+
+
+def generate_ai_content(
     client: dict,
     content_type: str,
     fallback_text: str = "",
@@ -163,5 +167,3 @@ def generate_all_ai_sections(
     )
 
     return result["content"]
-
-    return results
