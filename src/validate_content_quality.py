@@ -60,6 +60,17 @@ FILES_TO_SCAN = [
 ]
 
 
+REQUIRED_OPERATIONAL_MEMORY_CATEGORIES = [
+    "appointment_pressure",
+    "detention",
+    "freight_volume",
+    "weather_disruption",
+    "equipment_issues",
+    "customer_pressure",
+    "lane_activity",
+]
+
+
 SKIP_DIR_NAMES = {
     "_packages",
     "__pycache__",
@@ -155,6 +166,134 @@ def validate_file(path: Path) -> Dict:
     return record
 
 
+def validate_operational_memory(path: Path) -> Dict:
+    record = {
+        "file": str(path.relative_to(ROOT_DIR)),
+        "exists": path.exists(),
+        "passed": True,
+        "matches": [],
+    }
+
+    if not path.exists():
+        record["passed"] = False
+        record["matches"].append(
+            {
+                "category": "missing_operational_memory",
+                "pattern": None,
+                "message": "Missing operational_memory.json.",
+            }
+        )
+        return record
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        record["passed"] = False
+        record["matches"].append(
+            {
+                "category": "invalid_operational_memory_json",
+                "pattern": None,
+                "message": f"operational_memory.json is invalid JSON: {exc}",
+            }
+        )
+        return record
+
+    categories = data.get("categories")
+
+    if not isinstance(categories, dict):
+        record["passed"] = False
+        record["matches"].append(
+            {
+                "category": "invalid_operational_memory_structure",
+                "pattern": None,
+                "message": "operational_memory.json categories must be an object.",
+            }
+        )
+        return record
+
+    for category in REQUIRED_OPERATIONAL_MEMORY_CATEGORIES:
+        if category not in categories:
+            record["passed"] = False
+            record["matches"].append(
+                {
+                    "category": "missing_operational_memory_category",
+                    "pattern": None,
+                    "message": f"Missing operational memory category: {category}",
+                }
+            )
+            continue
+
+        entry = categories[category]
+
+        if not isinstance(entry, dict):
+            record["passed"] = False
+            record["matches"].append(
+                {
+                    "category": "invalid_operational_memory_category",
+                    "pattern": None,
+                    "message": f"{category} must be an object.",
+                }
+            )
+            continue
+
+        for field in ["status", "summary", "evidence", "severity"]:
+            if field not in entry:
+                record["passed"] = False
+                record["matches"].append(
+                    {
+                        "category": "missing_operational_memory_field",
+                        "pattern": None,
+                        "message": f"{category} missing field: {field}",
+                    }
+                )
+
+        status = entry.get("status")
+        if not isinstance(status, str) or not status.strip():
+            record["passed"] = False
+            record["matches"].append(
+                {
+                    "category": "invalid_operational_memory_status",
+                    "pattern": None,
+                    "message": f"{category} status must be a non-empty string.",
+                }
+            )
+
+        summary = entry.get("summary")
+        if not isinstance(summary, str) or not summary.strip():
+            record["passed"] = False
+            record["matches"].append(
+                {
+                    "category": "invalid_operational_memory_summary",
+                    "pattern": None,
+                    "message": f"{category} summary must be a non-empty string.",
+                }
+            )
+
+        evidence = entry.get("evidence")
+        if not isinstance(evidence, list):
+            record["passed"] = False
+            record["matches"].append(
+                {
+                    "category": "invalid_operational_memory_evidence",
+                    "pattern": None,
+                    "message": f"{category} evidence must be a list.",
+                }
+            )
+
+        severity = entry.get("severity")
+        if not isinstance(severity, int) or severity < 1 or severity > 5:
+            record["passed"] = False
+            record["matches"].append(
+                {
+                    "category": "invalid_operational_memory_severity",
+                    "pattern": None,
+                    "message": f"{category} severity must be an integer from 1 to 5.",
+                }
+            )
+
+    return record
+
+
 def write_report(week_dir: Path, report: Dict) -> Path:
     report_path = week_dir / "content_quality_report.json"
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
@@ -171,7 +310,9 @@ def main() -> None:
         "status": "passed",
         "client_count": len(client_dirs),
         "files_checked_per_client": len(FILES_TO_SCAN),
+        "operational_memory_checked_per_client": 1,
         "banned_pattern_categories": list(BANNED_PATTERNS.keys()),
+        "required_operational_memory_categories": REQUIRED_OPERATIONAL_MEMORY_CATEGORIES,
         "clients": [],
         "error_count": 0,
     }
@@ -183,6 +324,7 @@ def main() -> None:
             "client_folder": client_dir.name,
             "status": "passed",
             "files": [],
+            "operational_memory": None,
         }
 
         for filename in FILES_TO_SCAN:
@@ -192,6 +334,15 @@ def main() -> None:
             if not file_record["passed"]:
                 client_record["status"] = "failed"
                 error_count += len(file_record["matches"])
+
+        memory_record = validate_operational_memory(
+            client_dir / "operational_memory.json"
+        )
+        client_record["operational_memory"] = memory_record
+
+        if not memory_record["passed"]:
+            client_record["status"] = "failed"
+            error_count += len(memory_record["matches"])
 
         report["clients"].append(client_record)
 
@@ -207,6 +358,7 @@ def main() -> None:
         print(f"Week: {week_dir.name}")
         print(f"Client folders checked: {len(client_dirs)}")
         print(f"Files checked per client: {len(FILES_TO_SCAN)}")
+        print("Operational memory checked per client: 1")
         print(f"Errors found: {error_count}")
         print(f"Report written: {report_path}")
 
@@ -221,12 +373,22 @@ def main() -> None:
                         f"{match['category']} | {match['pattern']} | {match['message']}"
                     )
 
+            memory_record = client_record.get("operational_memory")
+
+            if memory_record and not memory_record["passed"]:
+                for match in memory_record["matches"]:
+                    print(
+                        f"- {memory_record['file']}: "
+                        f"{match['category']} | {match['pattern']} | {match['message']}"
+                    )
+
         raise SystemExit(1)
 
     print("CONTENT QUALITY CHECK PASSED")
     print(f"Week: {week_dir.name}")
     print(f"Client folders checked: {len(client_dirs)}")
     print(f"Files checked per client: {len(FILES_TO_SCAN)}")
+    print("Operational memory checked per client: 1")
     print(f"Report written: {report_path}")
 
 
