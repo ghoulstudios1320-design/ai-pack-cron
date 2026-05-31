@@ -205,7 +205,7 @@ def process_client(
 
     status = client.get("delivery_status")
 
-    if status != "uploaded":
+    if status != "ready_for_delivery":
         print(f"Skipping {client_id}: status={status}")
         return False
 
