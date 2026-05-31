@@ -1062,6 +1062,12 @@ def build_pdf(client: Dict[str, Any], out_dir: Path, week_key: str, sections: Di
 
 
 def write_meta(client: Dict[str, Any], out_dir: Path, week_key: str) -> None:
+   
+    write_operational_memory(
+    client_id=safe_client_value(client, "client_id"),
+    week=week_key,
+    output_dir=out_dir,
+)
     contact = require_contact_block(client)
     configured_logo_path = safe_client_value(client, "logo_path", "")
     resolved_logo_path = resolve_logo_path(client)
@@ -1096,11 +1102,11 @@ def write_meta(client: Dict[str, Any], out_dir: Path, week_key: str) -> None:
             "safety_reminders": "safety_reminders.md",
             "company_update": "company_update.md",
             "freight_digest": "freight_digest.md",
+            "operational_memory": "operational_memory.json",
         },
     }
 
     (out_dir / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
-
 
 def generate_for_client(client: Dict[str, Any], week_key: str) -> None:
     company = safe_client_value(client, "company_name", "Unnamed Client")
