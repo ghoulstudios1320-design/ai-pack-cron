@@ -141,5 +141,27 @@ def generate_all_ai_sections(
             memory_context=memory_context,
             fallback_text=fallbacks.get(section, ""),
         )
+        def generate_ai_content(
+    client: dict,
+    content_type: str,
+    fallback_text: str = "",
+    memory_context: dict | None = None,
+    week_label: str | None = None,
+) -> str:
+    """
+    Compatibility wrapper used by generate_trucking_pack.py.
+    Keeps the existing pipeline working while routing each section
+    through the newer AI section generator.
+    """
+
+    result = generate_ai_section(
+        section_name=content_type,
+        client_config=client,
+        week_label=week_label or os.getenv("WEEK_KEY", "current-week"),
+        memory_context=memory_context,
+        fallback_text=fallback_text,
+    )
+
+    return result["content"]
 
     return results
