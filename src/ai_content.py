@@ -1,5 +1,5 @@
-import os
 import json
+import os
 from openai import OpenAI
 
 
@@ -43,15 +43,24 @@ def generate_ai_section(
     company_name = client_config.get("company_name", "the carrier")
     region = client_config.get("region", "the operating region")
     fleet_size = client_config.get("fleet_size", "small fleet")
-    equipment_type = client_config.get("equipment_type", "commercial trucks")
-    primary_lanes = client_config.get("primary_lanes", "regional freight lanes")
-    voice = client_config.get("voice", "clear, practical, trucking-operations focused")
-    memory_json = json.dumps(memory_context or {}, indent=2)
+    equipment_type = client_config.get(
+        "equipment_type",
+        client_config.get("equipment", "commercial trucks"),
+    )
+    primary_lanes = client_config.get(
+        "primary_lanes",
+        client_config.get("common_lanes", "regional freight lanes"),
+    )
+    voice = client_config.get(
+        "voice",
+        "clear, practical, trucking-operations focused",
+    )
+
     voice_profile = client_config.get("voice_profile", {})
-    voice_profile_json = json.dumps(
-    voice_profile,
-    indent=2
-)
+    voice_profile_json = json.dumps(voice_profile, indent=2)
+
+    memory_json = json.dumps(memory_context or {}, indent=2)
+
     prompt = f"""
 You are generating a weekly trucking communication section for WHOA Weekly.
 
@@ -67,17 +76,25 @@ Client:
 - Voice: {voice}
 - Week: {week_label}
 
+Voice Profile:
+{voice_profile_json}
+
 Memory / prior-week context:
 {memory_json}
 
 Rules:
 - Sound operationally realistic.
+- Follow the client's voice profile closely.
+- Make each carrier sound distinct from the others.
 - Do not invent fake pay, fake lanes, fake contracts, fake guarantees, or fake customer names.
 - No emojis.
 - Keep it concise and useful.
 - Write like this could go directly into a weekly fleet communication pack.
 - Avoid generic AI wording.
+- Avoid corporate buzzwords unless the client voice profile asks for them.
 - Mention the company name naturally where useful.
+- Use prior-week memory when available, but do not over-explain it.
+- If trends repeat across weeks, reference them naturally.
 - If the section is social posts, produce multiple short post-ready items.
 - If the section is safety reminders, produce practical reminders drivers can act on.
 - If the section is recruiting, focus on realistic driver-facing messaging.
@@ -93,7 +110,12 @@ Return only the finished section content in Markdown.
             messages=[
                 {
                     "role": "system",
-                    "content": "You create practical trucking fleet communications for small and mid-sized carriers.",
+                    "content": (
+                        "You create practical trucking fleet communications "
+                        "for small and mid-sized carriers. Write like someone "
+                        "who understands dispatch, drivers, freight delays, "
+                        "equipment issues, and customer appointment pressure."
+                    ),
                 },
                 {"role": "user", "content": prompt},
             ],
