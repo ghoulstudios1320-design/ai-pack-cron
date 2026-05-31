@@ -1,7 +1,7 @@
 import json
 import os
 import re
-from src.ai_content import generate_all_ai_sections
+from src.ai_content import generate_ai_content
 from datetime import date
 from pathlib import Path
 from typing import Any, Dict, List, Optional
