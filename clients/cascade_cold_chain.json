@@ -40,4 +40,29 @@
   "tone": "practical, driver-respectful, professional, no corporate fluff",
   "contact_email": "recruiting@cascadecoldchain.com",
   "contact_phone": "503-555-0188"
+
+"voice_profile": {
+  "tone": "professional cold-chain specialist",
+  "recruiting_style": "safety and reliability focused",
+  "company_personality": "precision, consistency, customer trust",
+  "driver_values": [
+    "attention to detail",
+    "temperature integrity",
+    "communication",
+    "professionalism"
+  ],
+  "avoid": [
+    "sales language",
+    "generic recruiting slogans"
+  ]
+}
+
+
+
+
+
+
+
+
+
 }
