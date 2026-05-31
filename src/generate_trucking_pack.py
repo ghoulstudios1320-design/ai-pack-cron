@@ -258,29 +258,7 @@ def generate_recruiting_posts(client: Dict[str, Any]) -> str:
             fallback_text=fallback,
         )
     )
-fallbacks = {
- "recruiting_posts": recruiting_posts_md,
- "social_posts": social_posts_md,
- "safety_reminders": safety_reminders_md,
- "company_update": company_update_md,
- "freight_digest": freight_digest_md,
-}
-ai_sections = generate_all_ai_sections(
- client_config=client,
- week_label=week_label,
- memory_context=memory_context,
- fallbacks=fallbacks,
-)
-recruiting_posts_md = ai_sections["recruiting_posts"]["content"]
-social_posts_md = ai_sections["social_posts"]["content"]
-safety_reminders_md = ai_sections["safety_reminders"]["content"]
-company_update_md = ai_sections["company_update"]["content"]
-freight_digest_md = ai_sections["freight_digest"]["content"]
-# meta.json
-"ai_content": {
- "enabled": any(section["enabled"] for section in ai_sections.values()),
- "sections": ai_sections,
-}
+
 
 def build_social_posts_fallback(client: Dict[str, Any]) -> str:
     contact = require_contact_block(client)
