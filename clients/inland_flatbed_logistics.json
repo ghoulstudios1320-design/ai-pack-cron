@@ -46,28 +46,20 @@
     "secondary_color": "#15803D",
     "accent_color": "#22C55E",
     "footer_color": "#14532D"
+  },
+  "voice_profile": {
+    "tone": "blue-collar flatbed operation",
+    "recruiting_style": "hard-working driver focused",
+    "company_personality": "practical, honest, work ethic driven",
+    "driver_values": [
+      "securement skills",
+      "independence",
+      "accountability",
+      "experience"
+    ],
+    "avoid": [
+      "corporate jargon",
+      "generic social media language"
+    ]
   }
-
-"voice_profile": {
-  "tone": "blue-collar flatbed operation",
-  "recruiting_style": "hard-working driver focused",
-  "company_personality": "practical, honest, work ethic driven",
-  "driver_values": [
-    "securement skills",
-    "independence",
-    "accountability",
-    "experience"
-  ],
-  "avoid": [
-    "corporate jargon",
-    "generic social media language"
-  ]
-}
-
-
-
-
-
-
-
 }
