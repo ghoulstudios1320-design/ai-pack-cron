@@ -123,6 +123,40 @@ Writing Standard:
 - Prefer driver-facing realism over marketing polish.
 - Make the section sound like it came from someone who has had to answer the phone when freight is late.
 - Do not use fake specifics, but do use the client’s actual lanes, equipment, region, and pain points.
+
+Memory Usage Requirements:
+    
+    When memory data exists:
+
+- Reference at least one prior-week trend.
+- Compare current conditions to prior conditions.
+- Identify recurring issues.
+- Identify improving conditions.
+- Identify worsening conditions.
+- Never write the freight digest as a standalone weekly summary.
+- Write the freight digest as a continuation of an ongoing operation.
+
+Bad:
+"This week freight remains steady."
+
+Good:
+"Appointment pressure on the Portland-Seattle lane has continued from last week."
+
+Bad:
+"This week we are seeing detention."
+
+Good:
+"Detention reports remain elevated compared to the previous reporting period."
+
+Bad:
+"This week demand is strong."
+
+Good:
+"Demand has remained strong for multiple consecutive weeks."
+
+
+
+
 Return only the finished section content in Markdown.
 """
 
