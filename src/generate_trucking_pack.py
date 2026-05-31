@@ -1,6 +1,7 @@
 import json
 import os
 import re
+from src.operational_memory import write_operational_memory
 from src.ai_content import generate_ai_content
 from datetime import date
 from pathlib import Path
