@@ -54,6 +54,7 @@ def build_distribution_manifest(master_index: Dict[str, Any]) -> Dict[str, Any]:
                 "meta": client.get("meta"),
                 "operational_memory": client.get("operational_memory"),
                 "client_intelligence_summary": client.get("client_intelligence_summary"),
+                "trend_dashboard": client.get("trend_dashboard"),
 
                 "artifact_storage": "github_actions",
                 "notion_url": None,
