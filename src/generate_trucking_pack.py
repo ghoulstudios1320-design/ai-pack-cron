@@ -1105,7 +1105,8 @@ write_client_intelligence_summary(out_dir)
             "safety_reminders": "safety_reminders.md",
             "company_update": "company_update.md",
             "freight_digest": "freight_digest.md",
-            "operational_memory": "operational_memory.json",
+            "operational_memory": "operational_memory.json", 
+            "client_intelligence_summary": "client_intelligence_summary.md",
         },
     }
 
