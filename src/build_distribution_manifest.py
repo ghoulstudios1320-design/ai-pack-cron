@@ -53,6 +53,7 @@ def build_distribution_manifest(master_index: Dict[str, Any]) -> Dict[str, Any]:
                 "markdown": client.get("markdown"),
                 "meta": client.get("meta"),
                 "operational_memory": client.get("operational_memory"),
+                "client_intelligence_summary": client.get("client_intelligence_summary"),
 
                 "artifact_storage": "github_actions",
                 "notion_url": None,
