@@ -1099,6 +1099,7 @@ def write_meta(client: Dict[str, Any], out_dir: Path, week_key: str) -> None:
             "freight_digest": "freight_digest.md",
             "operational_memory": "operational_memory.json",
             "client_intelligence_summary": "client_intelligence_summary.md",
+            "trend_dashboard": "trend_dashboard.json",
         },
     }
 
