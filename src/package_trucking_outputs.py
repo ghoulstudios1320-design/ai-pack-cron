@@ -20,6 +20,7 @@ EXPECTED_FILES = [
     "freight_digest.md",
     "meta.json",
     "operational_memory.json",
+    "client_intelligence_summary.md",
 ]
 
 
@@ -88,6 +89,7 @@ def zip_client_folder(client_dir: Path, packages_dir: Path, week_key: str) -> Di
         "markdown": f"{client_dir.name}/full_pack.md",
         "meta": f"{client_dir.name}/meta.json",
         "operational_memory": f"{client_dir.name}/operational_memory.json",
+        "client_intelligence_summary": f"{client_dir.name}/client_intelligence_summary.md",
     }
 
 
