@@ -2,7 +2,7 @@ import json
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -94,6 +94,31 @@ ALLOWED_TREND_DELTAS = {
 }
 
 
+REQUIRED_TREND_DASHBOARD_FIELDS = [
+    "client_id",
+    "company_name",
+    "week",
+    "dashboard_version",
+    "memory_version",
+    "risk_score",
+    "recommended_action_level",
+    "signal_counts",
+    "highest_risk_categories",
+    "urgent_categories",
+    "recommended_actions",
+    "summary",
+    "category_scores",
+]
+
+
+ALLOWED_ACTION_LEVELS = {
+    "normal",
+    "monitor",
+    "elevated",
+    "urgent",
+}
+
+
 SKIP_DIR_NAMES = {
     "_packages",
     "__pycache__",
@@ -152,8 +177,8 @@ def scan_text(text: str) -> List[Tuple[str, str]]:
     return findings
 
 
-def validate_file(path: Path) -> Dict:
-    record = {
+def validate_file(path: Path) -> Dict[str, Any]:
+    record: Dict[str, Any] = {
         "file": str(path.relative_to(ROOT_DIR)),
         "exists": path.exists(),
         "passed": True,
@@ -189,8 +214,8 @@ def validate_file(path: Path) -> Dict:
     return record
 
 
-def validate_operational_memory(path: Path) -> Dict:
-    record = {
+def validate_operational_memory(path: Path) -> Dict[str, Any]:
+    record: Dict[str, Any] = {
         "file": str(path.relative_to(ROOT_DIR)),
         "exists": path.exists(),
         "passed": True,
@@ -384,8 +409,8 @@ def validate_operational_memory(path: Path) -> Dict:
     return record
 
 
-def validate_client_intelligence_summary(path: Path) -> Dict:
-    record = {
+def validate_client_intelligence_summary(path: Path) -> Dict[str, Any]:
+    record: Dict[str, Any] = {
         "file": str(path.relative_to(ROOT_DIR)),
         "exists": path.exists(),
         "passed": True,
@@ -438,7 +463,165 @@ def validate_client_intelligence_summary(path: Path) -> Dict:
     return record
 
 
-def write_report(week_dir: Path, report: Dict) -> Path:
+def validate_trend_dashboard(path: Path) -> Dict[str, Any]:
+    record: Dict[str, Any] = {
+        "file": str(path.relative_to(ROOT_DIR)),
+        "exists": path.exists(),
+        "passed": True,
+        "matches": [],
+    }
+
+    if not path.exists():
+        record["passed"] = False
+        record["matches"].append(
+            {
+                "category": "missing_trend_dashboard",
+                "pattern": None,
+                "message": "Missing trend_dashboard.json.",
+            }
+        )
+        return record
+
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        record["passed"] = False
+        record["matches"].append(
+            {
+                "category": "invalid_trend_dashboard_json",
+                "pattern": None,
+                "message": f"trend_dashboard.json is invalid JSON: {exc}",
+            }
+        )
+        return record
+
+    for field in REQUIRED_TREND_DASHBOARD_FIELDS:
+        if field not in data:
+            record["passed"] = False
+            record["matches"].append(
+                {
+                    "category": "missing_trend_dashboard_field",
+                    "pattern": None,
+                    "message": f"trend_dashboard.json missing field: {field}",
+                }
+            )
+
+    risk_score = data.get("risk_score")
+    if not isinstance(risk_score, int) or risk_score < 0 or risk_score > 100:
+        record["passed"] = False
+        record["matches"].append(
+            {
+                "category": "invalid_trend_dashboard_risk_score",
+                "pattern": None,
+                "message": "trend_dashboard.json risk_score must be an integer from 0 to 100.",
+            }
+        )
+
+    action_level = data.get("recommended_action_level")
+    if action_level not in ALLOWED_ACTION_LEVELS:
+        record["passed"] = False
+        record["matches"].append(
+            {
+                "category": "invalid_trend_dashboard_action_level",
+                "pattern": None,
+                "message": (
+                    "trend_dashboard.json recommended_action_level must be one of: "
+                    f"{sorted(ALLOWED_ACTION_LEVELS)}"
+                ),
+            }
+        )
+
+    signal_counts = data.get("signal_counts")
+    if not isinstance(signal_counts, dict):
+        record["passed"] = False
+        record["matches"].append(
+            {
+                "category": "invalid_trend_dashboard_signal_counts",
+                "pattern": None,
+                "message": "trend_dashboard.json signal_counts must be an object.",
+            }
+        )
+    else:
+        for trend in ALLOWED_TREND_DELTAS:
+            if trend not in signal_counts:
+                record["passed"] = False
+                record["matches"].append(
+                    {
+                        "category": "missing_trend_dashboard_signal_count",
+                        "pattern": None,
+                        "message": f"trend_dashboard.json signal_counts missing: {trend}",
+                    }
+                )
+                continue
+
+            value = signal_counts.get(trend)
+            if not isinstance(value, int) or value < 0:
+                record["passed"] = False
+                record["matches"].append(
+                    {
+                        "category": "invalid_trend_dashboard_signal_count",
+                        "pattern": None,
+                        "message": f"trend_dashboard.json signal_counts.{trend} must be an integer >= 0.",
+                    }
+                )
+
+    for list_field in [
+        "highest_risk_categories",
+        "urgent_categories",
+        "recommended_actions",
+        "category_scores",
+    ]:
+        value = data.get(list_field)
+        if not isinstance(value, list):
+            record["passed"] = False
+            record["matches"].append(
+                {
+                    "category": "invalid_trend_dashboard_list_field",
+                    "pattern": None,
+                    "message": f"trend_dashboard.json {list_field} must be a list.",
+                }
+            )
+
+    summary = data.get("summary")
+    if not isinstance(summary, str) or not summary.strip():
+        record["passed"] = False
+        record["matches"].append(
+            {
+                "category": "invalid_trend_dashboard_summary",
+                "pattern": None,
+                "message": "trend_dashboard.json summary must be a non-empty string.",
+            }
+        )
+
+    category_scores = data.get("category_scores")
+    if isinstance(category_scores, list):
+        for index, item in enumerate(category_scores):
+            if not isinstance(item, dict):
+                record["passed"] = False
+                record["matches"].append(
+                    {
+                        "category": "invalid_trend_dashboard_category_score",
+                        "pattern": None,
+                        "message": f"trend_dashboard.json category_scores[{index}] must be an object.",
+                    }
+                )
+                continue
+
+            score = item.get("score")
+            if not isinstance(score, int) or score < 0 or score > 100:
+                record["passed"] = False
+                record["matches"].append(
+                    {
+                        "category": "invalid_trend_dashboard_category_score_value",
+                        "pattern": None,
+                        "message": f"trend_dashboard.json category_scores[{index}].score must be an integer from 0 to 100.",
+                    }
+                )
+
+    return record
+
+
+def write_report(week_dir: Path, report: Dict[str, Any]) -> Path:
     report_path = week_dir / "content_quality_report.json"
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
     return report_path
@@ -448,7 +631,7 @@ def main() -> None:
     week_dir = get_latest_week_dir()
     client_dirs = discover_client_dirs(week_dir)
 
-    report = {
+    report: Dict[str, Any] = {
         "week": week_dir.name,
         "checked_at": now_iso(),
         "status": "passed",
@@ -456,10 +639,13 @@ def main() -> None:
         "files_checked_per_client": len(FILES_TO_SCAN),
         "operational_memory_checked_per_client": 1,
         "client_intelligence_summary_checked_per_client": 1,
+        "trend_dashboard_checked_per_client": 1,
         "banned_pattern_categories": list(BANNED_PATTERNS.keys()),
         "required_operational_memory_categories": REQUIRED_OPERATIONAL_MEMORY_CATEGORIES,
         "required_operational_memory_fields": REQUIRED_OPERATIONAL_MEMORY_FIELDS,
         "allowed_trend_deltas": sorted(ALLOWED_TREND_DELTAS),
+        "required_trend_dashboard_fields": REQUIRED_TREND_DASHBOARD_FIELDS,
+        "allowed_action_levels": sorted(ALLOWED_ACTION_LEVELS),
         "clients": [],
         "error_count": 0,
     }
@@ -467,12 +653,13 @@ def main() -> None:
     error_count = 0
 
     for client_dir in client_dirs:
-        client_record = {
+        client_record: Dict[str, Any] = {
             "client_folder": client_dir.name,
             "status": "passed",
             "files": [],
             "operational_memory": None,
             "client_intelligence_summary": None,
+            "trend_dashboard": None,
         }
 
         for filename in FILES_TO_SCAN:
@@ -501,6 +688,15 @@ def main() -> None:
             client_record["status"] = "failed"
             error_count += len(summary_record["matches"])
 
+        dashboard_record = validate_trend_dashboard(
+            client_dir / "trend_dashboard.json"
+        )
+        client_record["trend_dashboard"] = dashboard_record
+
+        if not dashboard_record["passed"]:
+            client_record["status"] = "failed"
+            error_count += len(dashboard_record["matches"])
+
         report["clients"].append(client_record)
 
     report["error_count"] = error_count
@@ -517,37 +713,29 @@ def main() -> None:
         print(f"Files checked per client: {len(FILES_TO_SCAN)}")
         print("Operational memory checked per client: 1")
         print("Client intelligence summary checked per client: 1")
+        print("Trend dashboard checked per client: 1")
         print(f"Errors found: {error_count}")
         print(f"Report written: {report_path}")
 
         for client_record in report["clients"]:
-            for file_record in client_record["files"]:
-                if file_record["passed"]:
+            for key in ["files", "operational_memory", "client_intelligence_summary", "trend_dashboard"]:
+                records = client_record.get(key)
+
+                if records is None:
                     continue
 
-                for match in file_record["matches"]:
-                    print(
-                        f"- {file_record['file']}: "
-                        f"{match['category']} | {match['pattern']} | {match['message']}"
-                    )
+                if isinstance(records, dict):
+                    records = [records]
 
-            memory_record = client_record.get("operational_memory")
+                for file_record in records:
+                    if file_record.get("passed"):
+                        continue
 
-            if memory_record and not memory_record["passed"]:
-                for match in memory_record["matches"]:
-                    print(
-                        f"- {memory_record['file']}: "
-                        f"{match['category']} | {match['pattern']} | {match['message']}"
-                    )
-
-            summary_record = client_record.get("client_intelligence_summary")
-
-            if summary_record and not summary_record["passed"]:
-                for match in summary_record["matches"]:
-                    print(
-                        f"- {summary_record['file']}: "
-                        f"{match['category']} | {match['pattern']} | {match['message']}"
-                    )
+                    for match in file_record.get("matches", []):
+                        print(
+                            f"- {file_record['file']}: "
+                            f"{match['category']} | {match['pattern']} | {match['message']}"
+                        )
 
         raise SystemExit(1)
 
@@ -557,6 +745,7 @@ def main() -> None:
     print(f"Files checked per client: {len(FILES_TO_SCAN)}")
     print("Operational memory checked per client: 1")
     print("Client intelligence summary checked per client: 1")
+    print("Trend dashboard checked per client: 1")
     print(f"Report written: {report_path}")
 
 
