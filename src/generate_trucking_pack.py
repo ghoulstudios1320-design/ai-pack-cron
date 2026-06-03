@@ -1,6 +1,7 @@
 import json
 import os
 import re
+from src.trend_dashboard import write_trend_dashboard
 from src.client_intelligence_summary import write_client_intelligence_summary
 from src.operational_memory import write_operational_memory
 from src.ai_content import generate_ai_content
@@ -1116,14 +1117,13 @@ def generate_for_client(client: Dict[str, Any], week_key: str) -> None:
     write_meta(client, out_dir, week_key)
 
     write_operational_memory(
-        client_id=safe_client_value(client, "client_id"),
-        week=week_key,
-        output_dir=out_dir,
-    )
+    client_id=safe_client_value(client, "client_id"),
+    week=week_key,
+    output_dir=out_dir,
+)
 
-    write_client_intelligence_summary(out_dir)
-
-    print(f"Done: {out_dir}")
+write_client_intelligence_summary(out_dir)
+write_trend_dashboard(out_dir)
 
 
 def main() -> None:
