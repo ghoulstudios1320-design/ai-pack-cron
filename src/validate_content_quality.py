@@ -384,6 +384,60 @@ def validate_operational_memory(path: Path) -> Dict:
     return record
 
 
+def validate_client_intelligence_summary(path: Path) -> Dict:
+    record = {
+        "file": str(path.relative_to(ROOT_DIR)),
+        "exists": path.exists(),
+        "passed": True,
+        "matches": [],
+    }
+
+    if not path.exists():
+        record["passed"] = False
+        record["matches"].append(
+            {
+                "category": "missing_client_intelligence_summary",
+                "pattern": None,
+                "message": "Missing client_intelligence_summary.md.",
+            }
+        )
+        return record
+
+    text = path.read_text(encoding="utf-8", errors="replace").strip()
+
+    if not text:
+        record["passed"] = False
+        record["matches"].append(
+            {
+                "category": "empty_client_intelligence_summary",
+                "pattern": None,
+                "message": "client_intelligence_summary.md is empty.",
+            }
+        )
+        return record
+
+    required_headings = [
+        "# Weekly Client Intelligence Summary",
+        "## Executive Readout",
+        "## Trend Breakdown",
+        "## Recommended Focus",
+        "## Raw Category Snapshot",
+    ]
+
+    for heading in required_headings:
+        if heading not in text:
+            record["passed"] = False
+            record["matches"].append(
+                {
+                    "category": "missing_client_intelligence_summary_heading",
+                    "pattern": heading,
+                    "message": f"client_intelligence_summary.md missing heading: {heading}",
+                }
+            )
+
+    return record
+
+
 def write_report(week_dir: Path, report: Dict) -> Path:
     report_path = week_dir / "content_quality_report.json"
     report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
@@ -401,6 +455,7 @@ def main() -> None:
         "client_count": len(client_dirs),
         "files_checked_per_client": len(FILES_TO_SCAN),
         "operational_memory_checked_per_client": 1,
+        "client_intelligence_summary_checked_per_client": 1,
         "banned_pattern_categories": list(BANNED_PATTERNS.keys()),
         "required_operational_memory_categories": REQUIRED_OPERATIONAL_MEMORY_CATEGORIES,
         "required_operational_memory_fields": REQUIRED_OPERATIONAL_MEMORY_FIELDS,
@@ -417,6 +472,7 @@ def main() -> None:
             "status": "passed",
             "files": [],
             "operational_memory": None,
+            "client_intelligence_summary": None,
         }
 
         for filename in FILES_TO_SCAN:
@@ -436,6 +492,15 @@ def main() -> None:
             client_record["status"] = "failed"
             error_count += len(memory_record["matches"])
 
+        summary_record = validate_client_intelligence_summary(
+            client_dir / "client_intelligence_summary.md"
+        )
+        client_record["client_intelligence_summary"] = summary_record
+
+        if not summary_record["passed"]:
+            client_record["status"] = "failed"
+            error_count += len(summary_record["matches"])
+
         report["clients"].append(client_record)
 
     report["error_count"] = error_count
@@ -451,6 +516,7 @@ def main() -> None:
         print(f"Client folders checked: {len(client_dirs)}")
         print(f"Files checked per client: {len(FILES_TO_SCAN)}")
         print("Operational memory checked per client: 1")
+        print("Client intelligence summary checked per client: 1")
         print(f"Errors found: {error_count}")
         print(f"Report written: {report_path}")
 
@@ -474,6 +540,15 @@ def main() -> None:
                         f"{match['category']} | {match['pattern']} | {match['message']}"
                     )
 
+            summary_record = client_record.get("client_intelligence_summary")
+
+            if summary_record and not summary_record["passed"]:
+                for match in summary_record["matches"]:
+                    print(
+                        f"- {summary_record['file']}: "
+                        f"{match['category']} | {match['pattern']} | {match['message']}"
+                    )
+
         raise SystemExit(1)
 
     print("CONTENT QUALITY CHECK PASSED")
@@ -481,6 +556,7 @@ def main() -> None:
     print(f"Client folders checked: {len(client_dirs)}")
     print(f"Files checked per client: {len(FILES_TO_SCAN)}")
     print("Operational memory checked per client: 1")
+    print("Client intelligence summary checked per client: 1")
     print(f"Report written: {report_path}")
 
 
