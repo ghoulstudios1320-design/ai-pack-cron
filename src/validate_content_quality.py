@@ -71,6 +71,29 @@ REQUIRED_OPERATIONAL_MEMORY_CATEGORIES = [
 ]
 
 
+REQUIRED_OPERATIONAL_MEMORY_FIELDS = [
+    "status",
+    "previous_status",
+    "trend_delta",
+    "weeks_observed",
+    "summary",
+    "evidence",
+    "severity",
+]
+
+
+ALLOWED_TREND_DELTAS = {
+    "insufficient_history",
+    "new",
+    "resolved",
+    "worsening",
+    "improving",
+    "persistent",
+    "stable",
+    "changed",
+}
+
+
 SKIP_DIR_NAMES = {
     "_packages",
     "__pycache__",
@@ -198,6 +221,17 @@ def validate_operational_memory(path: Path) -> Dict:
         )
         return record
 
+    memory_version = data.get("memory_version")
+    if not isinstance(memory_version, str) or not memory_version.strip():
+        record["passed"] = False
+        record["matches"].append(
+            {
+                "category": "invalid_operational_memory_version",
+                "pattern": None,
+                "message": "operational_memory.json memory_version must be a non-empty string.",
+            }
+        )
+
     categories = data.get("categories")
 
     if not isinstance(categories, dict):
@@ -236,15 +270,7 @@ def validate_operational_memory(path: Path) -> Dict:
             )
             continue
 
-        for field in [
-    "status",
-    "previous_status",
-    "trend_delta",
-    "weeks_observed",
-    "summary",
-    "evidence",
-    "severity",
-]:
+        for field in REQUIRED_OPERATIONAL_MEMORY_FIELDS:
             if field not in entry:
                 record["passed"] = False
                 record["matches"].append(
@@ -263,6 +289,51 @@ def validate_operational_memory(path: Path) -> Dict:
                     "category": "invalid_operational_memory_status",
                     "pattern": None,
                     "message": f"{category} status must be a non-empty string.",
+                }
+            )
+
+        previous_status = entry.get("previous_status")
+        if not isinstance(previous_status, str) or not previous_status.strip():
+            record["passed"] = False
+            record["matches"].append(
+                {
+                    "category": "invalid_operational_memory_previous_status",
+                    "pattern": None,
+                    "message": f"{category} previous_status must be a non-empty string.",
+                }
+            )
+
+        trend_delta = entry.get("trend_delta")
+        if not isinstance(trend_delta, str) or not trend_delta.strip():
+            record["passed"] = False
+            record["matches"].append(
+                {
+                    "category": "invalid_operational_memory_trend_delta",
+                    "pattern": None,
+                    "message": f"{category} trend_delta must be a non-empty string.",
+                }
+            )
+        elif trend_delta not in ALLOWED_TREND_DELTAS:
+            record["passed"] = False
+            record["matches"].append(
+                {
+                    "category": "unknown_operational_memory_trend_delta",
+                    "pattern": None,
+                    "message": (
+                        f"{category} trend_delta '{trend_delta}' is not in the allowed set: "
+                        f"{sorted(ALLOWED_TREND_DELTAS)}"
+                    ),
+                }
+            )
+
+        weeks_observed = entry.get("weeks_observed")
+        if not isinstance(weeks_observed, int) or weeks_observed < 0:
+            record["passed"] = False
+            record["matches"].append(
+                {
+                    "category": "invalid_operational_memory_weeks_observed",
+                    "pattern": None,
+                    "message": f"{category} weeks_observed must be an integer greater than or equal to 0.",
                 }
             )
 
@@ -287,6 +358,17 @@ def validate_operational_memory(path: Path) -> Dict:
                     "message": f"{category} evidence must be a list.",
                 }
             )
+        else:
+            for index, item in enumerate(evidence):
+                if not isinstance(item, str):
+                    record["passed"] = False
+                    record["matches"].append(
+                        {
+                            "category": "invalid_operational_memory_evidence_item",
+                            "pattern": None,
+                            "message": f"{category} evidence item {index} must be a string.",
+                        }
+                    )
 
         severity = entry.get("severity")
         if not isinstance(severity, int) or severity < 1 or severity > 5:
@@ -321,6 +403,8 @@ def main() -> None:
         "operational_memory_checked_per_client": 1,
         "banned_pattern_categories": list(BANNED_PATTERNS.keys()),
         "required_operational_memory_categories": REQUIRED_OPERATIONAL_MEMORY_CATEGORIES,
+        "required_operational_memory_fields": REQUIRED_OPERATIONAL_MEMORY_FIELDS,
+        "allowed_trend_deltas": sorted(ALLOWED_TREND_DELTAS),
         "clients": [],
         "error_count": 0,
     }
