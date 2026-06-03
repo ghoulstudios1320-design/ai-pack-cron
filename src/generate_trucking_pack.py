@@ -1062,15 +1062,9 @@ def build_pdf(client: Dict[str, Any], out_dir: Path, week_key: str, sections: Di
     )
 
 
-def write_meta(client: Dict[str, Any], out_dir: Path, week_key: str) -> None:
-   
-   write_operational_memory(
-    client_id=safe_client_value(client, "client_id"),
-    week=week_key,
-    output_dir=out_dir,
-)
 
-write_client_intelligence_summary(out_dir)
+    }
+def write_meta(client: Dict[str, Any], out_dir: Path, week_key: str) -> None:
     contact = require_contact_block(client)
     configured_logo_path = safe_client_value(client, "logo_path", "")
     resolved_logo_path = resolve_logo_path(client)
@@ -1105,7 +1099,7 @@ write_client_intelligence_summary(out_dir)
             "safety_reminders": "safety_reminders.md",
             "company_update": "company_update.md",
             "freight_digest": "freight_digest.md",
-            "operational_memory": "operational_memory.json", 
+            "operational_memory": "operational_memory.json",
             "client_intelligence_summary": "client_intelligence_summary.md",
         },
     }
