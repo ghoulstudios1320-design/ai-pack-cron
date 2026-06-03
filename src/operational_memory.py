@@ -185,15 +185,18 @@ def _calculate_weeks_observed(
         return 0
 
     previous_status = previous_entry.get("status", "unknown")
-    previous_weeks = previous_entry.get("weeks_observed", 0)
+    previous_weeks = previous_entry.get("weeks_observed")
 
     try:
         previous_weeks = int(previous_weeks)
     except Exception:
-        previous_weeks = 0
+        previous_weeks = None
 
     if _is_active_status(previous_status):
-        return max(1, previous_weeks + 1)
+        if previous_weeks is None or previous_weeks < 1:
+            return 2
+
+        return previous_weeks + 1
 
     return 1
 
