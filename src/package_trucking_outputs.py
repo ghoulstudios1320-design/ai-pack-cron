@@ -21,6 +21,7 @@ EXPECTED_FILES = [
     "meta.json",
     "operational_memory.json",
     "client_intelligence_summary.md",
+    "trend_dashboard.json",
 ]
 
 
@@ -90,6 +91,7 @@ def zip_client_folder(client_dir: Path, packages_dir: Path, week_key: str) -> Di
         "meta": f"{client_dir.name}/meta.json",
         "operational_memory": f"{client_dir.name}/operational_memory.json",
         "client_intelligence_summary": f"{client_dir.name}/client_intelligence_summary.md",
+        "trend_dashboard": f"{client_dir.name}/trend_dashboard.json",
     }
 
 
