@@ -236,7 +236,15 @@ def validate_operational_memory(path: Path) -> Dict:
             )
             continue
 
-        for field in ["status", "summary", "evidence", "severity"]:
+        for field in [
+    "status",
+    "previous_status",
+    "trend_delta",
+    "weeks_observed",
+    "summary",
+    "evidence",
+    "severity",
+]:
             if field not in entry:
                 record["passed"] = False
                 record["matches"].append(
