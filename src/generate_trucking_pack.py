@@ -1,6 +1,7 @@
 import json
 import os
 import re
+from src.client_intelligence_summary import write_client_intelligence_summary
 from src.operational_memory import write_operational_memory
 from src.ai_content import generate_ai_content
 from datetime import date
@@ -1063,11 +1064,13 @@ def build_pdf(client: Dict[str, Any], out_dir: Path, week_key: str, sections: Di
 
 def write_meta(client: Dict[str, Any], out_dir: Path, week_key: str) -> None:
    
-    write_operational_memory(
+   write_operational_memory(
     client_id=safe_client_value(client, "client_id"),
     week=week_key,
     output_dir=out_dir,
 )
+
+write_client_intelligence_summary(out_dir)
     contact = require_contact_block(client)
     configured_logo_path = safe_client_value(client, "logo_path", "")
     resolved_logo_path = resolve_logo_path(client)
