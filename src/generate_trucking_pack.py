@@ -26,7 +26,6 @@ from reportlab.platypus import (
     TableStyle,
 )
 
-from src.ai_content import generate_ai_content
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
@@ -1062,8 +1061,6 @@ def build_pdf(client: Dict[str, Any], out_dir: Path, week_key: str, sections: Di
     )
 
 
-
-    }
 def write_meta(client: Dict[str, Any], out_dir: Path, week_key: str) -> None:
     contact = require_contact_block(client)
     configured_logo_path = safe_client_value(client, "logo_path", "")
@@ -1117,6 +1114,14 @@ def generate_for_client(client: Dict[str, Any], week_key: str) -> None:
 
     build_pdf(client, out_dir, week_key, sections)
     write_meta(client, out_dir, week_key)
+
+    write_operational_memory(
+        client_id=safe_client_value(client, "client_id"),
+        week=week_key,
+        output_dir=out_dir,
+    )
+
+    write_client_intelligence_summary(out_dir)
 
     print(f"Done: {out_dir}")
 
