@@ -146,7 +146,7 @@ def _output_root() -> Path:
 
 
 def _current_week() -> str:
-    env_week = os.getenv("WEEK_KEY") or os.getenv("WEEK") or os.getenv("WHOА_WEEK")
+    env_week = os.getenv("WEEK_KEY") or os.getenv("WEEK") or os.getenv("WHOA_WEEK")
     if env_week:
         return env_week.strip()
 
@@ -177,24 +177,12 @@ def _safe_read_json(path: Path) -> Dict[str, Any]:
         return {}
 
 
-def _safe_title(value: Any, fallback: str) -> str:
-    if isinstance(value, str) and value.strip():
-        return value.strip()
-
-    return fallback
-
-
 def _display_client_id(client_dir: Path) -> str:
     return client_dir.name
 
 
 def _load_client_meta(client_dir: Path) -> Dict[str, Any]:
-    meta = _safe_read_json(client_dir / "meta.json")
-
-    if not meta:
-        return {}
-
-    return meta
+    return _safe_read_json(client_dir / "meta.json")
 
 
 def _client_profile(client_id: str, client_dir: Path) -> Dict[str, str]:
@@ -313,9 +301,9 @@ def _bucket_categories(categories: Dict[str, Dict[str, Any]]) -> Dict[str, List[
     """
     Groups categories by their exact trend_delta.
 
-    This fixes the prior dashboard bug where persistent items could be displayed
-    under the Worsening heading because grouping logic mixed risk rank with
-    trend bucket labels.
+    This fixes the dashboard bug where persistent items could appear under the
+    Worsening heading because grouping mixed severity/risk ranking with trend
+    bucket labels.
     """
 
     buckets: Dict[str, List[Tuple[str, Dict[str, Any]]]] = {
@@ -554,8 +542,13 @@ def _write_trend_breakdown(lines: List[str], buckets: Dict[str, List[Tuple[str, 
         lines.append("")
 
 
-def _write_raw_snapshot(lines: List[str], categories: Dict[str, Dict[str, Any]]) -> None:
-    lines.append("### Raw Category Snapshot")
+def _write_raw_snapshot(
+    lines: List[str],
+    categories: Dict[str, Dict[str, Any]],
+    heading_level: int = 2,
+) -> None:
+    heading = "#" * max(1, heading_level)
+    lines.append(f"{heading} Raw Category Snapshot")
     lines.append("")
 
     sorted_categories = sorted(
@@ -569,7 +562,7 @@ def _write_raw_snapshot(lines: List[str], categories: Dict[str, Dict[str, Any]])
 
     for category in sorted_categories:
         entry = categories.get(category, {})
-        lines.append(f"#### {_category_label(category)}")
+        lines.append(f"### {_category_label(category)}")
         lines.append("")
         lines.append(f"- Status: `{_status(entry)}`")
         lines.append(f"- Previous Status: `{_previous_status(entry)}`")
@@ -633,11 +626,13 @@ def _client_summary_lines(
         lines.append("### Executive Readout")
         lines.append("")
     else:
-        lines.append(f"# Weekly Client Intelligence Summary - {profile['name']}")
+        # These exact headings are required by validate_content_quality.
+        lines.append("# Weekly Client Intelligence Summary")
         lines.append("")
-        lines.append(f"**Client ID:** `{client_id}`")
-        lines.append(f"**Week:** `{memory.get('week', '')}`")
-        lines.append(f"**Memory Version:** `{memory.get('memory_version', 'unknown')}`")
+        lines.append(f"Client: `{profile['name']}`")
+        lines.append(f"Client ID: `{client_id}`")
+        lines.append(f"Week: `{memory.get('week', '')}`")
+        lines.append(f"Memory Version: `{memory.get('memory_version', 'unknown')}`")
         lines.append("")
         lines.append("## Executive Readout")
         lines.append("")
@@ -700,8 +695,11 @@ def _client_summary_lines(
             lines.append("- None detected.")
 
         lines.append("")
+        lines.append("### Recommended Future Content Focus")
+    else:
+        # This exact heading is required by validate_content_quality.
+        lines.append("## Recommended Focus")
 
-    lines.append("### Recommended Future Content Focus" if combined else "## Recommended Focus")
     lines.append("")
 
     if focus:
@@ -712,7 +710,7 @@ def _client_summary_lines(
 
     lines.append("")
 
-    _write_raw_snapshot(lines, categories)
+    _write_raw_snapshot(lines, categories, heading_level=3 if combined else 2)
 
     return lines
 
@@ -766,13 +764,8 @@ def write_client_intelligence_summary(week: Optional[str] = None) -> Path:
 
     client_dirs = _client_dirs(week_dir)
 
-    written_client_summaries: List[Path] = []
-
     for client_dir in client_dirs:
-        output_path = _write_individual_client_summary(client_dir)
-
-        if output_path:
-            written_client_summaries.append(output_path)
+        _write_individual_client_summary(client_dir)
 
     lines: List[str] = [
         f"# Client Intelligence Summary - {week_key}",
