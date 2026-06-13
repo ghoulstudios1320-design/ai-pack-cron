@@ -37,6 +37,14 @@ TREND_BUCKETS = [
 ]
 
 
+FORECAST_BUCKETS = [
+    ("likely_rising", "Likely Rising"),
+    ("likely_stable", "Likely Stable"),
+    ("likely_improving", "Likely Improving"),
+    ("unknown", "Unknown"),
+]
+
+
 CLIENT_IDENTITY = {
     "cascade_cold_chain": {
         "name": "Cascade Cold Chain",
@@ -269,6 +277,33 @@ def _trend_delta(entry: Dict[str, Any]) -> str:
     return "insufficient_history"
 
 
+def _forecast(entry: Dict[str, Any]) -> str:
+    value = str(entry.get("forecast", "unknown")).strip().lower()
+
+    if value in {"likely_rising", "likely_stable", "likely_improving", "unknown"}:
+        return value
+
+    return "unknown"
+
+
+def _forecast_confidence(entry: Dict[str, Any]) -> str:
+    value = str(entry.get("forecast_confidence", "low")).strip().lower()
+
+    if value in {"high", "medium", "low"}:
+        return value
+
+    return "low"
+
+
+def _forecast_reason(entry: Dict[str, Any]) -> str:
+    value = entry.get("forecast_reason")
+
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+
+    return "insufficient history available"
+
+
 def _status(entry: Dict[str, Any]) -> str:
     return str(entry.get("status", "unknown"))
 
@@ -301,9 +336,8 @@ def _bucket_categories(categories: Dict[str, Dict[str, Any]]) -> Dict[str, List[
     """
     Groups categories by their exact trend_delta.
 
-    This fixes the dashboard bug where persistent items could appear under the
-    Worsening heading because grouping mixed severity/risk ranking with trend
-    bucket labels.
+    This prevents persistent items from being displayed under the Worsening
+    heading just because they have a high risk score.
     """
 
     buckets: Dict[str, List[Tuple[str, Dict[str, Any]]]] = {
@@ -329,8 +363,43 @@ def _bucket_categories(categories: Dict[str, Dict[str, Any]]) -> Dict[str, List[
     return buckets
 
 
+def _bucket_forecasts(categories: Dict[str, Dict[str, Any]]) -> Dict[str, List[Tuple[str, Dict[str, Any]]]]:
+    buckets: Dict[str, List[Tuple[str, Dict[str, Any]]]] = {
+        key: [] for key, _label in FORECAST_BUCKETS
+    }
+
+    for category in MEMORY_CATEGORIES:
+        entry = categories.get(category, {})
+        forecast = _forecast(entry)
+
+        if forecast in buckets:
+            buckets[forecast].append((category, entry))
+
+    confidence_rank = {
+        "high": 3,
+        "medium": 2,
+        "low": 1,
+    }
+
+    for bucket_items in buckets.values():
+        bucket_items.sort(
+            key=lambda item: (
+                -confidence_rank.get(_forecast_confidence(item[1]), 0),
+                -_severity_value(item[1]),
+                -_weeks_observed(item[1]),
+                _category_label(item[0]),
+            )
+        )
+
+    return buckets
+
+
 def _trend_counts(buckets: Dict[str, List[Tuple[str, Dict[str, Any]]]]) -> Dict[str, int]:
     return {key: len(buckets.get(key, [])) for key, _label in TREND_BUCKETS}
+
+
+def _forecast_counts(buckets: Dict[str, List[Tuple[str, Dict[str, Any]]]]) -> Dict[str, int]:
+    return {key: len(buckets.get(key, [])) for key, _label in FORECAST_BUCKETS}
 
 
 def _strongest_themes(categories: Dict[str, Dict[str, Any]], limit: int = 3) -> List[str]:
@@ -472,6 +541,7 @@ def _recommended_focus(
     for category in MEMORY_CATEGORIES:
         entry = categories.get(category, {})
         delta = _trend_delta(entry)
+        forecast = _forecast(entry)
         severity = _severity_value(entry)
 
         priority = 0
@@ -484,6 +554,13 @@ def _recommended_focus(
             priority += 15
         elif delta == "improving":
             priority += 8
+
+        if forecast == "likely_rising":
+            priority += 20
+        elif forecast == "likely_stable":
+            priority += 8
+        elif forecast == "likely_improving":
+            priority += 4
 
         priority += severity * 3
         priority += min(_weeks_observed(entry), 10)
@@ -523,6 +600,19 @@ def _format_category_line(category: str, entry: Dict[str, Any]) -> str:
     )
 
 
+def _format_forecast_line(category: str, entry: Dict[str, Any]) -> str:
+    label = _category_label(category)
+    confidence = _forecast_confidence(entry)
+    reason = _forecast_reason(entry)
+    severity = _severity_value(entry)
+    momentum = str(entry.get("momentum", "unknown"))
+
+    return (
+        f"- **{label}**: confidence `{confidence}`, severity `{severity}/5`, "
+        f"momentum `{momentum}`. {reason}"
+    )
+
+
 def _write_trend_breakdown(lines: List[str], buckets: Dict[str, List[Tuple[str, Dict[str, Any]]]]) -> None:
     lines.append("## Trend Breakdown")
     lines.append("")
@@ -538,6 +628,28 @@ def _write_trend_breakdown(lines: List[str], buckets: Dict[str, List[Tuple[str, 
         else:
             for category, entry in items:
                 lines.append(_format_category_line(category, entry))
+
+        lines.append("")
+
+
+def _write_forward_outlook(lines: List[str], forecast_buckets: Dict[str, List[Tuple[str, Dict[str, Any]]]]) -> None:
+    lines.append("## Forward Outlook")
+    lines.append("")
+
+    for bucket_key, bucket_label in FORECAST_BUCKETS:
+        if bucket_key == "unknown":
+            continue
+
+        lines.append(f"### {bucket_label}")
+        lines.append("")
+
+        items = forecast_buckets.get(bucket_key, [])
+
+        if not items:
+            lines.append("- None detected.")
+        else:
+            for category, entry in items:
+                lines.append(_format_forecast_line(category, entry))
 
         lines.append("")
 
@@ -582,6 +694,12 @@ def _write_raw_snapshot(
         if momentum is not None:
             lines.append(f"- Momentum: `{momentum}`")
 
+        forecast = entry.get("forecast")
+        if forecast is not None:
+            lines.append(f"- Forecast: `{_forecast(entry)}`")
+            lines.append(f"- Forecast Confidence: `{_forecast_confidence(entry)}`")
+            lines.append(f"- Forecast Reason: {_forecast_reason(entry)}")
+
         lines.append(f"- Summary: {_summary(entry)}")
         lines.append("")
 
@@ -596,7 +714,9 @@ def _client_summary_lines(
     profile = _client_profile(client_id, client_dir)
     categories = _memory_categories(memory)
     buckets = _bucket_categories(categories)
+    forecast_buckets = _bucket_forecasts(categories)
     counts = _trend_counts(buckets)
+    forecast_counts = _forecast_counts(forecast_buckets)
     strongest = _strongest_themes(categories)
     observed_weeks, observed_categories = _memory_coverage(categories)
     risk_groups = _risk_groups(categories)
@@ -652,6 +772,10 @@ def _client_summary_lines(
         f"**{counts['worsening']} worsening**, "
         f"**{counts['improving']} improving**, and "
         f"**{counts['resolved']} resolved** signals. "
+        f"Forward outlook shows "
+        f"**{forecast_counts['likely_rising']} likely rising**, "
+        f"**{forecast_counts['likely_stable']} likely stable**, and "
+        f"**{forecast_counts['likely_improving']} likely improving** categories. "
         f"The strongest carrier-specific themes are **{strongest_text}**."
         f"{identity_sentence}"
     )
@@ -683,6 +807,7 @@ def _client_summary_lines(
         lines.append("")
 
     _write_trend_breakdown(lines, buckets)
+    _write_forward_outlook(lines, forecast_buckets)
 
     if combined:
         lines.append("### Current-Week Content Signals")
@@ -774,7 +899,7 @@ def write_client_intelligence_summary(week: Optional[str] = None) -> Path:
         f"Client Count: `{len(client_dirs)}`",
         "Memory Source: `operational_memory.json + trend_dashboard.json`",
         "",
-        "This report summarizes operational memory, recurring fleet signals, current-week content signals, recommended future content focus areas, and carrier-specific operational identity.",
+        "This report summarizes operational memory, recurring fleet signals, forward outlook, current-week content signals, recommended future content focus areas, and carrier-specific operational identity.",
         "",
         "---",
         "",
