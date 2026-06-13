@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
-MEMORY_VERSION = "1.4"
+MEMORY_VERSION = "1.5"
 
 
 MEMORY_CATEGORIES = [
@@ -29,6 +29,9 @@ DEFAULT_CATEGORY_MEMORY = {
     "severity": 1,
     "severity_history": [],
     "momentum": "unknown",
+    "forecast": "unknown",
+    "forecast_confidence": "low",
+    "forecast_reason": "insufficient history available",
 }
 
 
@@ -275,6 +278,9 @@ def _build_category(
             "evidence_hit_count": 0,
             "severity_history": [1],
             "momentum": "stable",
+            "forecast": "likely_stable",
+            "forecast_confidence": "low",
+            "forecast_reason": "no current operational evidence was detected this week",
         }
 
     return {
@@ -289,6 +295,9 @@ def _build_category(
         "evidence_hit_count": hit_count,
         "severity_history": [raw_severity],
         "momentum": "stable",
+        "forecast": "likely_stable",
+        "forecast_confidence": "low",
+        "forecast_reason": "initial current-week evidence captured; more history is needed before stronger forecasting",
     }
 
 
@@ -424,6 +433,81 @@ def _calculate_momentum(
     return history, "stable"
 
 
+
+def _calculate_forecast(
+    momentum: str,
+    weeks_observed: int,
+    severity_history: List[int],
+    evidence_hit_count: int,
+) -> Tuple[str, str, str]:
+    """
+    Produces a simple, explainable next-week directional forecast.
+
+    Forecasting v1 is intentionally conservative and rule-based:
+    - momentum is the primary signal
+    - observed history controls confidence
+    - evidence count helps explain weak/low-confidence cases
+
+    This is not statistical prediction. It is an operational outlook layer built
+    on top of severity history and momentum.
+    """
+
+    normalized_momentum = str(momentum or "unknown").strip().lower()
+
+    try:
+        observed_weeks = int(weeks_observed)
+    except Exception:
+        observed_weeks = 0
+
+    try:
+        hit_count = int(evidence_hit_count)
+    except Exception:
+        hit_count = 0
+
+    history = _coerce_severity_history(severity_history)
+
+    if observed_weeks >= 8 and len(history) >= 4:
+        confidence = "high"
+    elif observed_weeks >= 4 and len(history) >= 3:
+        confidence = "medium"
+    else:
+        confidence = "low"
+
+    if observed_weeks <= 0 or not history:
+        return (
+            "likely_stable",
+            "low",
+            "no current operational evidence was detected this week",
+        )
+
+    if normalized_momentum == "rising":
+        return (
+            "likely_rising",
+            confidence,
+            "severity has increased relative to recent observations",
+        )
+
+    if normalized_momentum == "improving":
+        return (
+            "likely_improving",
+            confidence,
+            "severity has decreased relative to recent observations",
+        )
+
+    if hit_count <= 1 and observed_weeks < 4:
+        return (
+            "likely_stable",
+            "low",
+            "limited current-week evidence and limited history suggest a cautious stable outlook",
+        )
+
+    return (
+        "likely_stable",
+        confidence,
+        "severity has remained stable across recent observations",
+    )
+
+
 def _apply_previous_memory(
     current_memory: Dict[str, Any],
     previous_memory: Optional[Dict[str, Any]],
@@ -452,6 +536,17 @@ def _apply_previous_memory(
             current_entry["severity"] = severity
             current_entry["severity_history"] = [severity]
             current_entry["momentum"] = "stable"
+
+            forecast, confidence, reason = _calculate_forecast(
+                momentum="stable",
+                weeks_observed=current_entry.get("weeks_observed", 0),
+                severity_history=[severity],
+                evidence_hit_count=evidence_hit_count,
+            )
+
+            current_entry["forecast"] = forecast
+            current_entry["forecast_confidence"] = confidence
+            current_entry["forecast_reason"] = reason
 
         return current_memory
 
@@ -517,6 +612,17 @@ def _apply_previous_memory(
         current_entry["severity_history"] = severity_history
         current_entry["momentum"] = momentum
 
+        forecast, confidence, reason = _calculate_forecast(
+            momentum=momentum,
+            weeks_observed=current_entry.get("weeks_observed", 0),
+            severity_history=severity_history,
+            evidence_hit_count=evidence_hit_count,
+        )
+
+        current_entry["forecast"] = forecast
+        current_entry["forecast_confidence"] = confidence
+        current_entry["forecast_reason"] = reason
+
     return current_memory
 
 
@@ -581,11 +687,11 @@ def build_operational_memory(
     """
     Builds structured operational memory from generated weekly content.
 
-    Version 1.4 adds severity smoothing:
+    Version 1.5 adds Forecasting Layer v1:
     - raw_severity still captures this week's keyword evidence
     - severity is smoothed against recent history
-    - one generated week can move a category, but not whiplash it too hard
-    - no-evidence weeks can still resolve immediately
+    - momentum drives a simple next-week operational forecast
+    - forecast, forecast_confidence, and forecast_reason are written per category
     """
 
     source_files = [
@@ -881,6 +987,9 @@ def format_operational_memory_for_prompt(memory: Dict[str, Any]) -> str:
         evidence_hit_count = data.get("evidence_hit_count")
         severity_history = data.get("severity_history", [])
         momentum = data.get("momentum", "unknown")
+        forecast = data.get("forecast", "unknown")
+        forecast_confidence = data.get("forecast_confidence", "low")
+        forecast_reason = data.get("forecast_reason", "insufficient history available")
         summary = data.get("summary", "No clear operational pattern detected.")
 
         lines.append(f"- {category}:")
@@ -898,6 +1007,9 @@ def format_operational_memory_for_prompt(memory: Dict[str, Any]) -> str:
 
         lines.append(f"  - severity_history: {severity_history}")
         lines.append(f"  - momentum: {momentum}")
+        lines.append(f"  - forecast: {forecast}")
+        lines.append(f"  - forecast_confidence: {forecast_confidence}")
+        lines.append(f"  - forecast_reason: {forecast_reason}")
         lines.append(f"  - summary: {summary}")
 
     return "\n".join(lines)
