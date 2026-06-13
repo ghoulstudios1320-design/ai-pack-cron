@@ -1,7 +1,7 @@
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 MEMORY_CATEGORIES = [
@@ -23,6 +23,8 @@ DEFAULT_CATEGORY_MEMORY = {
     "summary": "No clear operational pattern detected yet.",
     "evidence": [],
     "severity": 1,
+    "severity_history": [],
+    "momentum": "unknown",
 }
 
 
@@ -119,6 +121,8 @@ def _build_category(
             "summary": "No clear operational pattern detected this week.",
             "evidence": [],
             "severity": 1,
+            "severity_history": [1],
+            "momentum": "stable",
         }
 
     return {
@@ -129,6 +133,8 @@ def _build_category(
         "summary": summary,
         "evidence": evidence,
         "severity": _normalize_severity(severity),
+        "severity_history": [_normalize_severity(severity)],
+        "momentum": "stable",
     }
 
 
@@ -201,14 +207,89 @@ def _calculate_weeks_observed(
     return 1
 
 
+def _coerce_severity_history(raw_history: Any) -> List[int]:
+    if not isinstance(raw_history, list):
+        return []
+
+    cleaned: List[int] = []
+
+    for value in raw_history:
+        try:
+            cleaned.append(_normalize_severity(value))
+        except Exception:
+            continue
+
+    return cleaned
+
+
+def _calculate_momentum(
+    severity: int,
+    previous_entry: Dict[str, Any],
+) -> Tuple[List[int], str]:
+    """
+    Carries forward severity history and labels short-term momentum.
+
+    The history is capped at 8 observations so the file stays small.
+    Momentum is intentionally conservative:
+    - rising: current severity is meaningfully above prior average
+    - improving: current severity is meaningfully below prior average
+    - stable: no meaningful movement yet
+    """
+
+    current_severity = _normalize_severity(severity)
+
+    history = _coerce_severity_history(previous_entry.get("severity_history", []))
+
+    if not history:
+        previous_severity = previous_entry.get("severity")
+        try:
+            history = [_normalize_severity(previous_severity)]
+        except Exception:
+            history = []
+
+    history.append(current_severity)
+    history = history[-8:]
+
+    if len(history) < 2:
+        return history, "stable"
+
+    previous_values = history[:-1]
+
+    if not previous_values:
+        return history, "stable"
+
+    previous_average = sum(previous_values) / len(previous_values)
+    current = history[-1]
+
+    if current > previous_average + 0.5:
+        return history, "rising"
+
+    if current < previous_average - 0.5:
+        return history, "improving"
+
+    return history, "stable"
+
+
 def _apply_previous_memory(
     current_memory: Dict[str, Any],
     previous_memory: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
+    current_categories = current_memory.get("categories", {})
+
     if not previous_memory:
+        for category in MEMORY_CATEGORIES:
+            current_entry = current_categories.get(category)
+
+            if not isinstance(current_entry, dict):
+                continue
+
+            severity = _normalize_severity(current_entry.get("severity", 1))
+            current_entry["severity"] = severity
+            current_entry["severity_history"] = [severity]
+            current_entry["momentum"] = "stable"
+
         return current_memory
 
-    current_categories = current_memory.get("categories", {})
     previous_categories = previous_memory.get("categories", {})
 
     if not isinstance(previous_categories, dict):
@@ -237,6 +318,17 @@ def _apply_previous_memory(
             previous_entry=previous_entry,
         )
 
+        severity = _normalize_severity(current_entry.get("severity", 1))
+        current_entry["severity"] = severity
+
+        severity_history, momentum = _calculate_momentum(
+            severity=severity,
+            previous_entry=previous_entry,
+        )
+
+        current_entry["severity_history"] = severity_history
+        current_entry["momentum"] = momentum
+
     return current_memory
 
 
@@ -246,7 +338,7 @@ def _is_week_dir(path: Path) -> bool:
 
 def infer_previous_operational_memory_path(output_dir: Path) -> Optional[Path]:
     """
-    Infers the previous week's operational memory path from the current client output folder.
+    Infers the previous available week's operational memory path from the current client output folder.
 
     Expected structure:
     output/
@@ -256,6 +348,9 @@ def infer_previous_operational_memory_path(output_dir: Path) -> Optional[Path]:
       2026-W32/
         cascade_cold_chain/
           operational_memory.json
+
+    Missing weeks are tolerated. The function chooses the nearest earlier week
+    that contains operational_memory.json for the same client.
     """
 
     client_folder = output_dir.name
@@ -270,27 +365,23 @@ def infer_previous_operational_memory_path(output_dir: Path) -> Optional[Path]:
         key=lambda path: path.name,
     )
 
-    week_names = [path.name for path in week_dirs]
+    prior_week_dirs = [
+        path
+        for path in week_dirs
+        if path.name < current_week_dir.name
+    ]
 
-    if current_week_dir.name not in week_names:
-        return None
+    for previous_week_dir in reversed(prior_week_dirs):
+        previous_memory_path = (
+            previous_week_dir
+            / client_folder
+            / "operational_memory.json"
+        )
 
-    current_index = week_names.index(current_week_dir.name)
+        if previous_memory_path.exists():
+            return previous_memory_path
 
-    if current_index <= 0:
-        return None
-
-    previous_week_dir = week_dirs[current_index - 1]
-    previous_memory_path = (
-        previous_week_dir
-        / client_folder
-        / "operational_memory.json"
-    )
-
-    if not previous_memory_path.exists():
-        return None
-
-    return previous_memory_path
+    return None
 
 
 def build_operational_memory(
@@ -302,10 +393,9 @@ def build_operational_memory(
     """
     Builds structured operational memory from generated weekly content.
 
-    Version 1.1 adds trend-delta fields:
-    - previous_status
-    - trend_delta
-    - weeks_observed
+    Version 1.2 adds trend momentum fields:
+    - severity_history
+    - momentum
     """
 
     source_files = [
@@ -325,7 +415,7 @@ def build_operational_memory(
     memory = {
         "client_id": client_id,
         "week": week,
-        "memory_version": "1.1",
+        "memory_version": "1.2",
         "categories": {
             "appointment_pressure": _build_category(
                 combined_text,
@@ -504,7 +594,7 @@ def write_operational_memory(
 def load_operational_memory(path: Path) -> Dict[str, Any]:
     if not path.exists():
         return {
-            "memory_version": "1.1",
+            "memory_version": "1.2",
             "categories": {
                 category: DEFAULT_CATEGORY_MEMORY.copy()
                 for category in MEMORY_CATEGORIES
@@ -530,6 +620,8 @@ def format_operational_memory_for_prompt(memory: Dict[str, Any]) -> str:
         trend_delta = data.get("trend_delta", "insufficient_history")
         weeks_observed = data.get("weeks_observed", 0)
         severity = data.get("severity", 1)
+        severity_history = data.get("severity_history", [])
+        momentum = data.get("momentum", "unknown")
         summary = data.get("summary", "No clear operational pattern detected.")
 
         lines.append(f"- {category}:")
@@ -538,6 +630,8 @@ def format_operational_memory_for_prompt(memory: Dict[str, Any]) -> str:
         lines.append(f"  - trend_delta: {trend_delta}")
         lines.append(f"  - weeks_observed: {weeks_observed}")
         lines.append(f"  - severity: {severity}/5")
+        lines.append(f"  - severity_history: {severity_history}")
+        lines.append(f"  - momentum: {momentum}")
         lines.append(f"  - summary: {summary}")
 
     return "\n".join(lines)
