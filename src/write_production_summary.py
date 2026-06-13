@@ -51,6 +51,14 @@ def get_client_meta(week_dir: Path, client_folder: str) -> Optional[Dict[str, An
     return load_json(week_dir / client_folder / "meta.json")
 
 
+def _client_has_file(week_dir: Path, client: Dict[str, Any], filename: str) -> bool:
+    client_folder = client.get("client_folder", "")
+    if not client_folder:
+        return False
+
+    return (week_dir / client_folder / filename).exists()
+
+
 def build_ai_summary(week_dir: Path, clients: List[Dict[str, Any]]) -> List[str]:
     lines = [
         "## AI Content Status",
@@ -82,67 +90,42 @@ def build_ai_summary(week_dir: Path, clients: List[Dict[str, Any]]) -> List[str]
     return lines
 
 
-def build_ai_memory_summary(week_dir: Path) -> List[str]:
-    memory_path = week_dir / "ai_memory_report.json"
-    memory_report = load_json(memory_path)
-
+def build_intelligence_summary(week_dir: Path, clients: List[Dict[str, Any]]) -> List[str]:
     lines = [
-        "## AI Memory Status",
+        "## Intelligence System Status",
         "",
+        "| Client | Operational Memory | Trend Dashboard | Client Intelligence | Forecasting |",
+        "|---|---:|---:|---:|---:|",
     ]
 
-    if not memory_report:
-        lines.extend(
-            [
-                "Status: ⚠️ missing `ai_memory_report.json`",
-                "",
-            ]
-        )
-        return lines
+    for client in clients:
+        client_folder = client.get("client_folder", "")
+        company_name = client.get("company_name", client_folder)
 
-    week = memory_report.get("week", week_dir.name)
-    updated_at = memory_report.get("updated_at", "")
-    max_previous_weeks = memory_report.get("max_previous_weeks", "")
-    clients = memory_report.get("clients", {})
+        operational_memory_exists = _client_has_file(week_dir, client, "operational_memory.json")
+        trend_dashboard_exists = _client_has_file(week_dir, client, "trend_dashboard.json")
+        client_intel_exists = _client_has_file(week_dir, client, "client_intelligence_summary.md")
 
-    lines.extend(
-        [
-            f"Status: ✅ active",
-            f"Week: `{week}`",
-            f"Updated At: `{updated_at}`",
-            f"Max Previous Weeks: `{max_previous_weeks}`",
-            "",
-            "| Client | Sections With Memory | Prior Weeks Used | Top Trend Themes |",
-            "|---|---:|---|---|",
-        ]
-    )
+        forecasting_active = False
+        memory = load_json(week_dir / client_folder / "operational_memory.json") if client_folder else None
 
-    for client_id, client_record in clients.items():
-        company_name = client_record.get("company_name", client_id)
-        sections = client_record.get("sections", {})
-
-        memory_sections = []
-        prior_weeks = []
-        trend_themes = []
-
-        for section_name, section_record in sections.items():
-            if section_record.get("memory_available"):
-                memory_sections.append(section_name)
-
-            for week_value in section_record.get("prior_weeks_used", []):
-                if week_value not in prior_weeks:
-                    prior_weeks.append(week_value)
-
-            for theme in section_record.get("trend_themes_detected", []):
-                if theme not in trend_themes:
-                    trend_themes.append(theme)
-
-        memory_count = len(memory_sections)
-        prior_weeks_text = ", ".join(prior_weeks) if prior_weeks else "none"
-        trend_text = ", ".join(trend_themes[:5]) if trend_themes else "none"
+        if memory:
+            categories = memory.get("categories", {})
+            if isinstance(categories, dict):
+                forecasting_active = any(
+                    isinstance(record, dict)
+                    and record.get("forecast")
+                    and record.get("forecast_confidence")
+                    and record.get("forecast_reason")
+                    for record in categories.values()
+                )
 
         lines.append(
-            f"| {company_name} | `{memory_count}` | {prior_weeks_text} | {trend_text} |"
+            f"| {company_name} | "
+            f"{status_icon(operational_memory_exists)} | "
+            f"{status_icon(trend_dashboard_exists)} | "
+            f"{status_icon(client_intel_exists)} | "
+            f"{status_icon(forecasting_active)} |"
         )
 
     lines.append("")
@@ -166,10 +149,16 @@ def build_quality_summary(content_quality_report: Optional[Dict[str, Any]]) -> L
 
     status = content_quality_report.get("status", "unknown")
     passed = status == "passed"
-    client_count = content_quality_report.get("client_count", 0)
+
+    client_count = (
+        content_quality_report.get("client_folders_checked")
+        or content_quality_report.get("client_count")
+        or 0
+    )
     files_checked_per_client = content_quality_report.get("files_checked_per_client", 0)
-    error_count = content_quality_report.get("error_count", 0)
-    checked_at = content_quality_report.get("checked_at", "")
+    errors = content_quality_report.get("errors", [])
+    error_count = len(errors) if isinstance(errors, list) else content_quality_report.get("error_count", 0)
+    checked_at = content_quality_report.get("written_at") or content_quality_report.get("checked_at", "")
 
     lines.extend(
         [
@@ -179,30 +168,30 @@ def build_quality_summary(content_quality_report: Optional[Dict[str, Any]]) -> L
             f"Files Checked Per Client: `{files_checked_per_client}`",
             f"Error Count: `{error_count}`",
             "",
-            "Banned Pattern Categories:",
         ]
     )
 
-    categories = content_quality_report.get("banned_pattern_categories", [])
-
-    if categories:
-        for category in categories:
-            lines.append(f"- `{category}`")
+    if error_count:
+        lines.append("Errors:")
+        if isinstance(errors, list):
+            for error in errors[:10]:
+                if isinstance(error, dict):
+                    lines.append(
+                        f"- `{error.get('error_type', 'unknown')}`: {error.get('detail', '')}"
+                    )
+                else:
+                    lines.append(f"- {error}")
+        lines.append("")
     else:
-        lines.append("- none recorded")
+        lines.append("No content quality errors recorded.")
+        lines.append("")
 
-    lines.append("")
     return lines
 
 
 def build_delivery_summary(manifest: Dict[str, Any]) -> List[str]:
-    drive_real = manifest.get("drive_upload_mode") == "real"
     notion_real = manifest.get("notion_publish_mode") == "real"
-    webhook_real = manifest.get("webhook_mode") == "real"
-
-    drive_failed = manifest.get("drive_upload_failed_client_count", 0)
     notion_failed = manifest.get("notion_publish_failed_client_count", 0)
-    webhook_failed = manifest.get("webhook_failed_client_count", 0)
 
     email_mode = manifest.get("email_mode", "not_run")
     email_sent = manifest.get("email_sent_client_count", 0)
@@ -220,9 +209,7 @@ def build_delivery_summary(manifest: Dict[str, Any]) -> List[str]:
         "",
         "| Check | Status | Detail |",
         "|---|---:|---|",
-        f"| Drive Upload | {status_icon(drive_real and drive_failed == 0)} | mode=`{manifest.get('drive_upload_mode')}`, failed=`{drive_failed}` |",
         f"| Notion Publish | {status_icon(notion_real and notion_failed == 0)} | mode=`{manifest.get('notion_publish_mode')}`, failed=`{notion_failed}` |",
-        f"| Webhooks | {status_icon(webhook_real and webhook_failed == 0)} | mode=`{manifest.get('webhook_mode')}`, failed=`{webhook_failed}` |",
         f"| Email Notifications | {status_icon_neutral(email_ok, skipped=email_skipped_ok)} | mode=`{email_mode}`, sent=`{email_sent}`, failed=`{email_failed}`, skipped=`{email_skipped}` |",
         f"| Retry Recovery | {status_icon(still_retry_pending == 0)} | recovered=`{recovered_count}`, still_pending=`{still_retry_pending}` |",
         "",
@@ -235,23 +222,18 @@ def build_client_delivery_table(clients: List[Dict[str, Any]]) -> List[str]:
     lines = [
         "## Client Delivery Links",
         "",
-        "| Client | Status | Drive PDF | Drive Markdown | Notion | Webhook | Email | Retry Count |",
-        "|---|---|---|---|---|---:|---:|---:|",
+        "| Client | Status | Notion | Email | Retry Count |",
+        "|---|---|---|---:|---:|",
     ]
 
     for client in clients:
         company = client.get("company_name", client.get("client_id", "unknown"))
         status = client.get("delivery_status", "unknown")
-        pdf_url = client.get("drive_pdf_url") or ""
-        md_url = client.get("drive_markdown_url") or ""
         notion_url = client.get("notion_url") or ""
-        webhook_sent = bool(client.get("webhook_sent"))
         email_status = client.get("email_status", "not_run")
         email_sent = bool(client.get("email_sent"))
         retry_count = client.get("retry_count", 0)
 
-        pdf_cell = f"[PDF]({pdf_url})" if pdf_url else "missing"
-        md_cell = f"[Markdown]({md_url})" if md_url else "missing"
         notion_cell = f"[Notion]({notion_url})" if notion_url else "missing"
 
         if email_status == "sent" or email_sent:
@@ -264,7 +246,7 @@ def build_client_delivery_table(clients: List[Dict[str, Any]]) -> List[str]:
             email_cell = "⚠️ not_run"
 
         lines.append(
-            f"| {company} | `{status}` | {pdf_cell} | {md_cell} | {notion_cell} | {status_icon(webhook_sent)} | {email_cell} | `{retry_count}` |"
+            f"| {company} | `{status}` | {notion_cell} | {email_cell} | `{retry_count}` |"
         )
 
     lines.append("")
@@ -293,7 +275,7 @@ def build_email_summary(manifest: Dict[str, Any]) -> List[str]:
         lines.extend(
             [
                 "Email delivery was skipped because SMTP credentials were not available.",
-                "This is non-blocking by design; Drive, Notion, webhooks, and retry recovery can still complete.",
+                "This is non-blocking by design; Notion publishing and retry recovery can still complete.",
                 "",
             ]
         )
@@ -305,6 +287,41 @@ def build_email_summary(manifest: Dict[str, Any]) -> List[str]:
         lines.extend(["Email delivery had failures. Review `distribution_manifest.json` for client-level errors.", ""])
 
     return lines
+
+
+def _all_clients_have_file(week_dir: Path, clients: List[Dict[str, Any]], filename: str) -> bool:
+    if not clients:
+        return False
+
+    return all(_client_has_file(week_dir, client, filename) for client in clients)
+
+
+def _all_clients_have_forecasting(week_dir: Path, clients: List[Dict[str, Any]]) -> bool:
+    if not clients:
+        return False
+
+    for client in clients:
+        client_folder = client.get("client_folder", "")
+        memory = load_json(week_dir / client_folder / "operational_memory.json") if client_folder else None
+
+        if not memory:
+            return False
+
+        categories = memory.get("categories", {})
+
+        if not isinstance(categories, dict):
+            return False
+
+        if not all(
+            isinstance(record, dict)
+            and "forecast" in record
+            and "forecast_confidence" in record
+            and "forecast_reason" in record
+            for record in categories.values()
+        ):
+            return False
+
+    return True
 
 
 def build_summary(week_dir: Path) -> str:
@@ -340,12 +357,11 @@ def build_summary(week_dir: Path) -> str:
     lines.extend(build_email_summary(manifest))
     lines.extend(build_quality_summary(content_quality_report))
     lines.extend(build_ai_summary(week_dir, clients))
-    lines.extend(build_ai_memory_summary(week_dir))
+    lines.extend(build_intelligence_summary(week_dir, clients))
     lines.extend(build_client_delivery_table(clients))
 
     email_failed = manifest.get("email_failed_client_count", 0)
     email_mode = manifest.get("email_mode", "not_run")
-    ai_memory_report = load_json(week_dir / "ai_memory_report.json")
 
     if email_mode == "real":
         email_readiness = "- Email delivery: ✅" if email_failed == 0 else "- Email delivery: ❌"
@@ -354,18 +370,24 @@ def build_summary(week_dir: Path) -> str:
     else:
         email_readiness = "- Email delivery: ⚠️ not run"
 
+    operational_memory_ok = _all_clients_have_file(week_dir, clients, "operational_memory.json")
+    trend_dashboard_ok = _all_clients_have_file(week_dir, clients, "trend_dashboard.json")
+    client_intelligence_ok = _all_clients_have_file(week_dir, clients, "client_intelligence_summary.md")
+    forecasting_ok = _all_clients_have_forecasting(week_dir, clients)
+
     lines.extend(
         [
             "## Final Production Readiness",
             "",
             "- Multi-client generation: ✅",
             "- Full AI content generation: ✅",
-            "- AI memory report: ✅" if ai_memory_report else "- AI memory report: ⚠️ missing",
+            "- Operational memory: ✅" if operational_memory_ok else "- Operational memory: ❌",
+            "- Trend dashboard: ✅" if trend_dashboard_ok else "- Trend dashboard: ❌",
+            "- Client intelligence: ✅" if client_intelligence_ok else "- Client intelligence: ❌",
+            "- Forecasting layer: ✅" if forecasting_ok else "- Forecasting layer: ❌",
             "- Fallback protection: ✅",
             "- Content quality report: ✅" if content_quality_report else "- Content quality report: ❌",
-            "- Drive upload: ✅" if manifest.get("drive_upload_failed_client_count", 0) == 0 else "- Drive upload: ❌",
             "- Notion publish: ✅" if manifest.get("notion_publish_failed_client_count", 0) == 0 else "- Notion publish: ❌",
-            "- Webhook delivery: ✅" if manifest.get("webhook_failed_client_count", 0) == 0 else "- Webhook delivery: ❌",
             email_readiness,
             "- Retry recovery: ✅" if manifest.get("still_retry_pending_client_count", 0) == 0 else "- Retry recovery: ❌",
             "",
