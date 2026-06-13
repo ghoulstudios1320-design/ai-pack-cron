@@ -4,6 +4,9 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
+MEMORY_VERSION = "1.3"
+
+
 MEMORY_CATEGORIES = [
     "appointment_pressure",
     "detention",
@@ -101,14 +104,91 @@ def _keyword_hits(text: str, keywords: List[str]) -> List[str]:
     return hits
 
 
+def _calculate_dynamic_severity(hit_count: int) -> int:
+    """
+    Converts observed evidence volume into an operational severity score.
+
+    This replaces the old hardcoded severity values.
+
+    Scoring model:
+    - 4 = heavy evidence concentration
+    - 3 = clear recurring evidence
+    - 2 = light/moderate evidence
+    - 1 = no or minimal evidence
+
+    Severity is intentionally capped at 4 for now.
+    Level 5 remains available later for explicit critical-event detection.
+    """
+
+    try:
+        count = int(hit_count)
+    except Exception:
+        count = 0
+
+    if count >= 8:
+        return 4
+
+    if count >= 5:
+        return 3
+
+    if count >= 2:
+        return 2
+
+    return 1
+
+
+def _status_from_severity(severity: int, fallback_status: str) -> str:
+    """
+    Keeps category status aligned with observed severity while preserving the
+    category's intended operational framing.
+
+    This prevents a category with only one weak hit from being marked as
+    increasing/high pressure just because its fallback label says so.
+    """
+
+    value = _normalize_severity(severity)
+
+    if value <= 1:
+        return "low"
+
+    if value == 2:
+        return "moderate"
+
+    if value == 3:
+        return _normalize_status(fallback_status)
+
+    if value >= 4:
+        return "high"
+
+    return _normalize_status(fallback_status)
+
+
 def _build_category(
     text: str,
     status: str,
     summary: str,
     keywords: List[str],
-    severity: int,
+    severity: Optional[int] = None,
 ) -> Dict[str, Any]:
+    """
+    Builds one operational memory category from generated weekly content.
+
+    The severity argument remains optional for backward compatibility, but the
+    source of truth is now dynamic severity from keyword evidence volume.
+    """
+
     hits = _keyword_hits(text, keywords)
+    hit_count = len(hits)
+
+    dynamic_severity = _calculate_dynamic_severity(hit_count)
+
+    if severity is not None:
+        fallback_severity = _normalize_severity(severity)
+        final_severity = max(dynamic_severity, min(fallback_severity, 2))
+    else:
+        final_severity = dynamic_severity
+
+    final_severity = _normalize_severity(final_severity)
 
     evidence = [f"Detected operational language around: {hit}" for hit in hits[:5]]
 
@@ -126,14 +206,14 @@ def _build_category(
         }
 
     return {
-        "status": _normalize_status(status),
+        "status": _status_from_severity(final_severity, status),
         "previous_status": "unknown",
         "trend_delta": "insufficient_history",
         "weeks_observed": 1,
         "summary": summary,
         "evidence": evidence,
-        "severity": _normalize_severity(severity),
-        "severity_history": [_normalize_severity(severity)],
+        "severity": final_severity,
+        "severity_history": [final_severity],
         "momentum": "stable",
     }
 
@@ -393,9 +473,10 @@ def build_operational_memory(
     """
     Builds structured operational memory from generated weekly content.
 
-    Version 1.2 adds trend momentum fields:
-    - severity_history
-    - momentum
+    Version 1.3 adds dynamic severity scoring:
+    - severity is calculated from observed keyword evidence volume
+    - severity_history continues to power momentum
+    - hardcoded severity no longer dominates every category
     """
 
     source_files = [
@@ -415,7 +496,7 @@ def build_operational_memory(
     memory = {
         "client_id": client_id,
         "week": week,
-        "memory_version": "1.2",
+        "memory_version": MEMORY_VERSION,
         "categories": {
             "appointment_pressure": _build_category(
                 combined_text,
@@ -423,13 +504,24 @@ def build_operational_memory(
                 summary="Appointment pressure appeared in this week's content through scheduling, delivery-window, or timing language.",
                 keywords=[
                     "appointment",
+                    "appointments",
                     "delivery window",
+                    "delivery windows",
                     "on-time",
+                    "on time",
                     "schedule",
+                    "scheduled",
+                    "scheduling",
                     "tight window",
+                    "tight windows",
                     "time-sensitive",
+                    "time sensitive",
                     "late delivery",
+                    "late deliveries",
                     "check-in",
+                    "check in",
+                    "cutoff",
+                    "cut-off",
                 ],
                 severity=3,
             ),
@@ -440,12 +532,22 @@ def build_operational_memory(
                 keywords=[
                     "detention",
                     "dock delay",
+                    "dock delays",
+                    "dock wait",
+                    "dock waits",
                     "waiting",
                     "wait time",
+                    "wait times",
                     "live load",
+                    "live loads",
                     "live unload",
+                    "live unloads",
                     "shipper delay",
+                    "shipper delays",
                     "receiver delay",
+                    "receiver delays",
+                    "loading delay",
+                    "unloading delay",
                 ],
                 severity=3,
             ),
@@ -456,14 +558,22 @@ def build_operational_memory(
                 keywords=[
                     "freight volume",
                     "load volume",
+                    "load volumes",
                     "load availability",
+                    "available loads",
                     "shipments",
+                    "shipment flow",
                     "demand",
+                    "freight demand",
                     "freight flow",
                     "steady freight",
                     "volume remains steady",
                     "surge",
+                    "surges",
                     "slowdown",
+                    "softening",
+                    "load flow",
+                    "market volume",
                 ],
                 severity=2,
             ),
@@ -474,16 +584,25 @@ def build_operational_memory(
                 keywords=[
                     "weather",
                     "rain",
+                    "heavy rain",
                     "snow",
                     "fog",
+                    "dense fog",
                     "wind",
+                    "high winds",
                     "ice",
+                    "icy",
                     "storm",
                     "storms",
                     "mountain pass",
+                    "mountain passes",
                     "chain",
+                    "chains",
                     "visibility",
+                    "low visibility",
                     "road conditions",
+                    "winter conditions",
+                    "slick roads",
                 ],
                 severity=3,
             ),
@@ -495,16 +614,27 @@ def build_operational_memory(
                     "equipment",
                     "maintenance",
                     "pre-trip",
+                    "pre trip",
                     "inspection",
+                    "inspections",
                     "reefer",
+                    "reefers",
+                    "temperature unit",
                     "tires",
+                    "tire",
                     "brakes",
+                    "brake",
                     "lights",
                     "trailer",
+                    "trailers",
                     "breakdown",
+                    "breakdowns",
                     "equipment failure",
                     "equipment failures",
                     "malfunction",
+                    "malfunctions",
+                    "repair",
+                    "repairs",
                 ],
                 severity=2,
             ),
@@ -514,15 +644,27 @@ def build_operational_memory(
                 summary="Customer pressure appeared through service expectations, communication, appointment discipline, or delivery reliability language.",
                 keywords=[
                     "customer",
+                    "customers",
                     "receiver",
+                    "receivers",
                     "shipper",
+                    "shippers",
                     "service",
+                    "service expectations",
                     "communication",
+                    "clear communication",
                     "delivery expectations",
                     "reliability",
+                    "delivery reliability",
                     "late",
+                    "late freight",
                     "on-time",
+                    "on time",
                     "expectations",
+                    "account",
+                    "accounts",
+                    "customer-facing",
+                    "customer facing",
                 ],
                 severity=3,
             ),
@@ -535,6 +677,7 @@ def build_operational_memory(
                     "lanes",
                     "regional",
                     "corridor",
+                    "corridors",
                     "washington",
                     "oregon",
                     "idaho",
@@ -545,6 +688,7 @@ def build_operational_memory(
                     "rockford",
                     "milwaukee",
                     "st. louis",
+                    "st louis",
                     "pacific northwest",
                     "pnw",
                     "i-5",
@@ -552,6 +696,10 @@ def build_operational_memory(
                     "i-90",
                     "route",
                     "routes",
+                    "market lane",
+                    "market lanes",
+                    "regional lane",
+                    "regional lanes",
                 ],
                 severity=2,
             ),
@@ -594,7 +742,7 @@ def write_operational_memory(
 def load_operational_memory(path: Path) -> Dict[str, Any]:
     if not path.exists():
         return {
-            "memory_version": "1.2",
+            "memory_version": MEMORY_VERSION,
             "categories": {
                 category: DEFAULT_CATEGORY_MEMORY.copy()
                 for category in MEMORY_CATEGORIES
