@@ -21,6 +21,37 @@ CATEGORY_LABELS = {
 }
 
 
+VALID_CATEGORIES = set(CATEGORY_LABELS.keys())
+
+
+# These are real metadata/helper fields that may appear inside trend files.
+# They should never be treated as operational categories.
+IGNORED_CATEGORY_KEYS = {
+    "client_id",
+    "client",
+    "company_name",
+    "week",
+    "week_key",
+    "generated_at",
+    "updated_at",
+    "created_at",
+    "memory_version",
+    "version",
+    "summary",
+    "executive_summary",
+    "raw_text",
+    "source_files",
+    "signal_counts",
+    "signals_count",
+    "counts",
+    "content_signals",
+    "current_week_signals",
+    "theme_counts",
+    "metadata",
+    "meta",
+}
+
+
 FOCUS_RECOMMENDATIONS = {
     "appointment_pressure": [
         "appointment-window communication",
@@ -60,12 +91,74 @@ FOCUS_RECOMMENDATIONS = {
 }
 
 
+CLIENT_IDENTITY_WEIGHTS = {
+    "cascade_cold_chain": {
+        "weather_disruption": 2,
+        "equipment_issues": 2,
+        "customer_pressure": 1,
+        "detention": 1,
+    },
+    "inland_flatbed_logistics": {
+        "weather_disruption": 2,
+        "equipment_issues": 2,
+        "lane_activity": 1,
+        "appointment_pressure": 1,
+    },
+    "iron_mile_freight": {
+        "appointment_pressure": 2,
+        "customer_pressure": 2,
+        "detention": 1,
+        "lane_activity": 1,
+    },
+}
+
+
+CLIENT_IDENTITY_LANGUAGE = {
+    "cascade_cold_chain": {
+        "identity": (
+            "Cascade Cold Chain's profile should emphasize temperature-sensitive freight, reefer readiness, "
+            "dock timing, weather exposure, and customer confidence around cold-chain reliability."
+        ),
+        "focus": [
+            "reefer inspection discipline",
+            "temperature-sensitive dock communication",
+            "weather-aware routing for refrigerated freight",
+            "customer update discipline during appointment pressure",
+        ],
+    },
+    "inland_flatbed_logistics": {
+        "identity": (
+            "Inland Flatbed Logistics' profile should emphasize flatbed readiness, weather exposure, securement-minded "
+            "operations, regional staging, and practical planning around shipper and receiver timing."
+        ),
+        "focus": [
+            "flatbed inspection and securement discipline",
+            "weather-aware load planning",
+            "staging options near regional shippers",
+            "driver-dispatch updates around appointment changes",
+        ],
+    },
+    "iron_mile_freight": {
+        "identity": (
+            "Iron Mile Freight's profile should emphasize Midwest dry van execution, metro congestion, appointment discipline, "
+            "detention management, and clear dispatch communication."
+        ),
+        "focus": [
+            "metro timing and congestion planning",
+            "appointment discipline on dry van lanes",
+            "detention documentation habits",
+            "dispatch updates around warehouse delays",
+        ],
+    },
+}
+
+
 TEXT_SIGNAL_KEYWORDS = {
     "dispatch": ["dispatch", "communication", "appointment"],
     "weather": ["weather", "winter", "ice", "snow", "rain", "fog", "wind", "storm"],
     "safety": ["safety", "backing", "fatigue", "hours of service", "hos", "spotter"],
     "detention": ["detention", "waiting", "wait time", "dock delay", "loading delay", "unloading delay"],
-    "equipment": ["equipment", "maintenance", "pre-trip", "post-trip", "tractor", "trailer", "tires", "brakes"],
+    "equipment": ["equipment", "maintenance", "pre-trip", "post-trip", "tractor", "trailer", "tires", "brakes", "reefer", "securement"],
     "congestion": ["congestion", "traffic", "metro", "rush hour", "urban"],
     "parking": ["parking", "staging", "overnight", "truck stop", "rest area"],
 }
@@ -172,26 +265,49 @@ def human_category_name(category: str) -> str:
     return CATEGORY_LABELS.get(category, category.replace("_", " ").title())
 
 
+def should_include_category(category: str, record: Dict[str, Any]) -> bool:
+    if category in IGNORED_CATEGORY_KEYS:
+        return False
+
+    if category in VALID_CATEGORIES:
+        return True
+
+    # Be conservative: do not let metadata maps like signal_counts leak into the report.
+    # Unknown categories are excluded unless they look like a real trend record.
+    has_trend_shape = any(
+        key in record
+        for key in [
+            "status",
+            "current_status",
+            "previous_status",
+            "trend_delta",
+            "weeks_observed",
+            "observed_weeks",
+            "severity",
+            "severity_score",
+            "summary",
+        ]
+    )
+
+    if not has_trend_shape:
+        return False
+
+    weeks = get_record_weeks_observed(record)
+    severity = get_record_severity(record)
+
+    return weeks > 0 or severity > 0
+
+
 def extract_category_records_from_mapping(data: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
     records: Dict[str, Dict[str, Any]] = {}
 
     for raw_category, raw_record in data.items():
         category = normalize_category_name(raw_category)
 
-        if category in {
-            "client_id",
-            "company_name",
-            "week",
-            "generated_at",
-            "updated_at",
-            "memory_version",
-            "version",
-            "summary",
-            "executive_readout",
-        }:
+        if category in IGNORED_CATEGORY_KEYS:
             continue
 
-        if isinstance(raw_record, dict):
+        if isinstance(raw_record, dict) and should_include_category(category, raw_record):
             records[category] = raw_record
 
     return records
@@ -203,6 +319,7 @@ def extract_category_records(data: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
 
     candidates = [
         data.get("categories"),
+        data.get("operational_categories"),
         data.get("signals"),
         data.get("memory"),
         data.get("operational_memory"),
@@ -227,7 +344,9 @@ def extract_category_records(data: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
             if not raw_category:
                 continue
 
-            records[normalize_category_name(str(raw_category))] = item
+            category = normalize_category_name(str(raw_category))
+            if should_include_category(category, item):
+                records[category] = item
 
         if records:
             return records
@@ -242,6 +361,9 @@ def merge_category_records(
     merged: Dict[str, Dict[str, Any]] = {}
 
     for category in sorted(set(operational_records) | set(trend_records)):
+        if category in IGNORED_CATEGORY_KEYS:
+            continue
+
         merged_record: Dict[str, Any] = {}
 
         if category in operational_records:
@@ -250,7 +372,8 @@ def merge_category_records(
         if category in trend_records:
             merged_record.update({k: v for k, v in trend_records[category].items() if v not in [None, ""]})
 
-        merged[category] = merged_record
+        if should_include_category(category, merged_record):
+            merged[category] = merged_record
 
     return merged
 
@@ -275,7 +398,12 @@ def get_record_previous_status(record: Dict[str, Any]) -> str:
 
 
 def get_record_delta(record: Dict[str, Any]) -> str:
-    return safe_str(record.get("trend_delta") or record.get("delta") or record.get("trend") or "persistent")
+    return safe_str(
+        record.get("trend_delta")
+        or record.get("delta")
+        or record.get("trend")
+        or "persistent"
+    )
 
 
 def get_record_weeks_observed(record: Dict[str, Any]) -> int:
@@ -318,12 +446,33 @@ def severity_label(value: int) -> str:
     return "Unscored"
 
 
-def category_sort_key(item: Tuple[str, Dict[str, Any]]) -> Tuple[int, int, str]:
+def severity_bucket(value: int) -> str:
+    if value >= 4:
+        return "High"
+    if value == 3:
+        return "Moderate"
+    if value in {1, 2}:
+        return "Low"
+    return "Unscored"
+
+
+def category_score(category: str, record: Dict[str, Any], client_id: str = "") -> Tuple[int, int, int, str]:
+    client_weights = CLIENT_IDENTITY_WEIGHTS.get(client_id, {})
+    identity_weight = client_weights.get(category, 0)
+    return (
+        identity_weight,
+        get_record_weeks_observed(record),
+        get_record_severity(record),
+        category,
+    )
+
+
+def category_sort_key(item: Tuple[str, Dict[str, Any]], client_id: str = "") -> Tuple[int, int, int, str]:
     category, record = item
-    return (get_record_weeks_observed(record), get_record_severity(record), category)
+    return category_score(category, record, client_id)
 
 
-def classify_categories(records: Dict[str, Dict[str, Any]]) -> Dict[str, List[Tuple[str, Dict[str, Any]]]]:
+def classify_categories(records: Dict[str, Dict[str, Any]], client_id: str = "") -> Dict[str, List[Tuple[str, Dict[str, Any]]]]:
     groups = {
         "worsening": [],
         "new": [],
@@ -337,21 +486,21 @@ def classify_categories(records: Dict[str, Dict[str, Any]]) -> Dict[str, List[Tu
         delta = get_record_delta(record).lower()
         status = get_record_status(record).lower()
 
-        if "worsen" in delta or "increasing" in delta or status == "increasing":
-            groups["worsening"].append((category, record))
-        elif "new" in delta:
+        if "new" in delta:
             groups["new"].append((category, record))
         elif "improv" in delta or "decreasing" in delta:
             groups["improving"].append((category, record))
         elif "resolved" in delta or "resolved" in status:
             groups["resolved"].append((category, record))
+        elif "worsen" in delta or status == "increasing":
+            groups["worsening"].append((category, record))
         elif "persistent" in delta or get_record_weeks_observed(record) >= 2:
             groups["persistent"].append((category, record))
         else:
             groups["other"].append((category, record))
 
     for key in groups:
-        groups[key] = sorted(groups[key], key=category_sort_key, reverse=True)
+        groups[key] = sorted(groups[key], key=lambda item: category_sort_key(item, client_id), reverse=True)
 
     return groups
 
@@ -371,10 +520,15 @@ def extract_current_week_signals(week_dir: Path, client_folder: str) -> Counter[
     return counter
 
 
-def recommended_focus_areas(records: Dict[str, Dict[str, Any]]) -> List[str]:
+def recommended_focus_areas(records: Dict[str, Dict[str, Any]], client_id: str) -> List[str]:
     recommendations: List[str] = []
 
-    sorted_categories = sorted(records.items(), key=category_sort_key, reverse=True)
+    identity_focus = CLIENT_IDENTITY_LANGUAGE.get(client_id, {}).get("focus", [])
+    for item in identity_focus:
+        if item not in recommendations:
+            recommendations.append(item)
+
+    sorted_categories = sorted(records.items(), key=lambda item: category_sort_key(item, client_id), reverse=True)
 
     for category, _record in sorted_categories:
         for item in FOCUS_RECOMMENDATIONS.get(category, []):
@@ -412,56 +566,106 @@ def memory_coverage(records: Dict[str, Dict[str, Any]]) -> str:
     return f"{category_count} operational categories detected"
 
 
-def build_executive_readout(company_name: str, records: Dict[str, Dict[str, Any]]) -> str:
+def severity_rollup(records: Dict[str, Dict[str, Any]]) -> Dict[str, List[str]]:
+    rollup = {
+        "High": [],
+        "Moderate": [],
+        "Low": [],
+        "Unscored": [],
+    }
+
+    for category, record in records.items():
+        bucket = severity_bucket(get_record_severity(record))
+        rollup[bucket].append(human_category_name(category))
+
+    for bucket in rollup:
+        rollup[bucket] = sorted(set(rollup[bucket]))
+
+    return rollup
+
+
+def build_severity_rollup_section(records: Dict[str, Dict[str, Any]]) -> List[str]:
+    lines = ["### Operational Risk Summary", ""]
+
+    if not records:
+        lines.append("- No operational risk categories available yet.")
+        lines.append("")
+        return lines
+
+    rollup = severity_rollup(records)
+
+    for bucket in ["High", "Moderate", "Low", "Unscored"]:
+        values = rollup.get(bucket, [])
+        if not values:
+            continue
+
+        lines.append(f"- **{bucket}:** {', '.join(values)}")
+
+    lines.append("")
+    return lines
+
+
+def build_executive_readout(company_name: str, records: Dict[str, Dict[str, Any]], client_id: str) -> str:
     if not records:
         return (
             f"{company_name} does not have enough operational memory yet for a strong intelligence read. "
             "Continue generating weekly packs to build a clearer operating profile."
         )
 
-    groups = classify_categories(records)
+    groups = classify_categories(records, client_id)
     persistent = len(groups["persistent"])
     new = len(groups["new"])
     worsening = len(groups["worsening"])
     improving = len(groups["improving"])
     resolved = len(groups["resolved"])
 
-    top_categories = sorted(records.items(), key=category_sort_key, reverse=True)[:3]
+    top_categories = sorted(records.items(), key=lambda item: category_sort_key(item, client_id), reverse=True)[:3]
     top_labels = [human_category_name(category) for category, _ in top_categories]
 
     base = (
-        f"This week's operational memory shows {persistent} persistent, {new} new, "
-        f"{worsening} worsening, {improving} improving, and {resolved} resolved signals."
+        f"This week's operational memory shows **{persistent} persistent**, **{new} new**, "
+        f"**{worsening} worsening**, **{improving} improving**, and **{resolved} resolved** signals."
     )
 
     if top_labels:
-        base += f" The strongest recurring themes are {', '.join(top_labels)}."
+        base += f" The strongest carrier-specific themes are **{', '.join(top_labels)}**."
+
+    identity_note = CLIENT_IDENTITY_LANGUAGE.get(client_id, {}).get("identity")
+    if identity_note:
+        base += f" {identity_note}"
 
     return base
 
 
-def build_operational_identity(company_name: str, records: Dict[str, Dict[str, Any]]) -> str:
+def build_operational_identity(company_name: str, records: Dict[str, Dict[str, Any]], client_id: str) -> str:
     if not records:
         return (
             f"{company_name}'s operational identity is still forming. "
             "More weekly runs are needed before persistent patterns can be summarized confidently."
         )
 
-    sorted_categories = sorted(records.items(), key=category_sort_key, reverse=True)[:4]
+    identity_note = CLIENT_IDENTITY_LANGUAGE.get(client_id, {}).get("identity", "")
+
+    sorted_categories = sorted(records.items(), key=lambda item: category_sort_key(item, client_id), reverse=True)[:4]
     labels = [human_category_name(category).lower() for category, _record in sorted_categories]
 
     if len(labels) >= 3:
-        return (
+        base = (
             f"{company_name} is developing a stable operating profile centered around "
-            f"{labels[0]}, {labels[1]}, and {labels[2]}. These themes should guide future "
-            "recruiting, safety, dispatch, and freight communication so the content stays specific "
-            "to the fleet instead of becoming generic."
+            f"{labels[0]}, {labels[1]}, and {labels[2]}."
         )
+    else:
+        base = f"{company_name}'s strongest current operating theme is {labels[0]}."
 
-    return (
-        f"{company_name}'s strongest current operating theme is {labels[0]}. "
-        "Future content should preserve this identity while rotating supporting weekly topics."
+    if identity_note:
+        base += f" {identity_note}"
+
+    base += (
+        " Future recruiting, safety, dispatch, and freight communication should preserve this carrier-specific identity "
+        "while rotating weekly focus areas to avoid repetitive content."
     )
+
+    return base
 
 
 def format_category_line(category: str, record: Dict[str, Any]) -> str:
@@ -494,7 +698,7 @@ def build_group_section(title: str, items: List[Tuple[str, Dict[str, Any]]]) -> 
     return lines
 
 
-def build_raw_snapshot(records: Dict[str, Dict[str, Any]]) -> List[str]:
+def build_raw_snapshot(records: Dict[str, Dict[str, Any]], client_id: str) -> List[str]:
     lines = ["### Raw Category Snapshot", ""]
 
     if not records:
@@ -502,7 +706,7 @@ def build_raw_snapshot(records: Dict[str, Dict[str, Any]]) -> List[str]:
         lines.append("")
         return lines
 
-    for category, record in sorted(records.items(), key=category_sort_key, reverse=True):
+    for category, record in sorted(records.items(), key=lambda item: category_sort_key(item, client_id), reverse=True):
         lines.extend(
             [
                 f"#### {human_category_name(category)}",
@@ -535,9 +739,9 @@ def build_client_summary(week_dir: Path, client: Dict[str, Any]) -> List[str]:
     trend_records = extract_category_records(trend_dashboard)
     records = merge_category_records(operational_records, trend_records)
 
-    groups = classify_categories(records)
+    groups = classify_categories(records, client_id)
     signals = extract_current_week_signals(week_dir, client_folder)
-    focus_areas = recommended_focus_areas(records)
+    focus_areas = recommended_focus_areas(records, client_id)
 
     fleet_size = meta.get("fleet_size", "")
     region = meta.get("region", "")
@@ -565,12 +769,19 @@ def build_client_summary(week_dir: Path, client: Dict[str, Any]) -> List[str]:
             "",
             "### Executive Readout",
             "",
-            build_executive_readout(company_name, records),
+            build_executive_readout(company_name, records, client_id),
             "",
             "### Operational Identity",
             "",
-            build_operational_identity(company_name, records),
+            build_operational_identity(company_name, records, client_id),
             "",
+        ]
+    )
+
+    lines.extend(build_severity_rollup_section(records))
+
+    lines.extend(
+        [
             "## Trend Breakdown",
             "",
         ]
@@ -585,7 +796,12 @@ def build_client_summary(week_dir: Path, client: Dict[str, Any]) -> List[str]:
     if groups["other"]:
         lines.extend(build_group_section("Other Watch Items", groups["other"]))
 
-    lines.extend(["### Current-Week Content Signals", ""])
+    lines.extend(
+        [
+            "### Current-Week Content Signals",
+            "",
+        ]
+    )
 
     emitted_signal = False
     for signal, count in signals.most_common(8):
@@ -597,13 +813,19 @@ def build_client_summary(week_dir: Path, client: Dict[str, Any]) -> List[str]:
     if not emitted_signal:
         lines.append("- No strong current-week content signals detected.")
 
-    lines.extend(["", "### Recommended Future Content Focus", ""])
+    lines.extend(
+        [
+            "",
+            "### Recommended Future Content Focus",
+            "",
+        ]
+    )
 
     for item in focus_areas:
         lines.append(f"- {item}")
 
     lines.extend([""])
-    lines.extend(build_raw_snapshot(records))
+    lines.extend(build_raw_snapshot(records, client_id))
     lines.extend(["---", ""])
 
     return lines
@@ -618,9 +840,9 @@ def build_summary(week_dir: Path) -> str:
         "",
         f"Written At: `{now_iso()}`",
         f"Client Count: `{len(clients)}`",
-        "Memory Source: `operational_memory.json + trend_dashboard.json`",
+        f"Memory Source: `operational_memory.json + trend_dashboard.json`",
         "",
-        "This report summarizes operational memory, recurring fleet signals, current-week content signals, and recommended future content focus areas.",
+        "This report summarizes operational memory, recurring fleet signals, current-week content signals, recommended future content focus areas, and carrier-specific operational identity.",
         "",
         "---",
         "",
