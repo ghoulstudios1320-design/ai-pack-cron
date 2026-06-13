@@ -8,6 +8,16 @@ OUTPUT_DIR = ROOT_DIR / "output"
 
 
 def find_latest_week_dir() -> Path:
+    week_key = os.getenv("WEEK_KEY", "").strip()
+
+    if week_key:
+        week_dir = OUTPUT_DIR / week_key
+
+        if not week_dir.exists():
+            raise RuntimeError(f"WEEK_KEY was set but output folder does not exist: {week_dir}")
+
+        return week_dir
+
     if not OUTPUT_DIR.exists():
         raise RuntimeError(f"Missing output directory: {OUTPUT_DIR}")
 
