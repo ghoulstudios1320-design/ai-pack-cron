@@ -1,10 +1,11 @@
 import json
+import math
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
-MEMORY_VERSION = "1.3"
+MEMORY_VERSION = "1.4"
 
 
 MEMORY_CATEGORIES = [
@@ -106,9 +107,7 @@ def _keyword_hits(text: str, keywords: List[str]) -> List[str]:
 
 def _calculate_dynamic_severity(hit_count: int) -> int:
     """
-    Converts observed evidence volume into an operational severity score.
-
-    This replaces the old hardcoded severity values.
+    Converts observed evidence volume into a raw operational severity score.
 
     Scoring model:
     - 4 = heavy evidence concentration
@@ -137,16 +136,80 @@ def _calculate_dynamic_severity(hit_count: int) -> int:
     return 1
 
 
-def _status_from_severity(severity: int, fallback_status: str) -> str:
-    """
-    Keeps category status aligned with observed severity while preserving the
-    category's intended operational framing.
+def _recent_average(values: List[int], limit: int = 3) -> Optional[float]:
+    if not values:
+        return None
 
-    This prevents a category with only one weak hit from being marked as
-    increasing/high pressure just because its fallback label says so.
+    recent_values = values[-limit:]
+
+    if not recent_values:
+        return None
+
+    return sum(recent_values) / len(recent_values)
+
+
+def _smooth_severity(
+    raw_severity: int,
+    previous_entry: Dict[str, Any],
+    has_current_evidence: bool,
+) -> int:
+    """
+    Smooths raw keyword severity so one noisy week does not over-amplify the dashboard.
+
+    Rules:
+    - If there is no evidence this week, allow severity to drop to 1 immediately.
+      This preserves resolved/unknown behavior.
+    - If there is no previous history, use the raw score.
+    - If there is history, limit week-over-week movement to one severity level.
+    - A category can still rise or improve, just not whiplash from 2 to 4 or 4 to 2
+      in one generated week without more history.
+
+    This keeps dynamic severity real while making trend movement more executive-safe.
+    """
+
+    raw = _normalize_severity(raw_severity)
+
+    if not has_current_evidence:
+        return 1
+
+    history = _coerce_severity_history(previous_entry.get("severity_history", []))
+
+    if not history:
+        previous_severity = previous_entry.get("severity")
+        try:
+            history = [_normalize_severity(previous_severity)]
+        except Exception:
+            history = []
+
+    average = _recent_average(history, limit=3)
+
+    if average is None:
+        return raw
+
+    max_allowed = math.ceil(average + 1)
+    min_allowed = math.floor(average - 1)
+
+    smoothed = max(min_allowed, min(raw, max_allowed))
+
+    return _normalize_severity(smoothed)
+
+
+def _status_from_severity(severity: int, fallback_status: str, has_current_evidence: bool) -> str:
+    """
+    Keeps category status aligned with final severity while preserving useful
+    category-specific labels like watch, increasing, and active.
+
+    Severity 4+ becomes high.
+    Severity 3 keeps the category's operational posture.
+    Severity 2 becomes moderate.
+    Severity 1 becomes low unless the category had no evidence, in which case it
+    becomes unknown.
     """
 
     value = _normalize_severity(severity)
+
+    if not has_current_evidence:
+        return "unknown"
 
     if value <= 1:
         return "low"
@@ -155,7 +218,12 @@ def _status_from_severity(severity: int, fallback_status: str) -> str:
         return "moderate"
 
     if value == 3:
-        return _normalize_status(fallback_status)
+        normalized_fallback = _normalize_status(fallback_status)
+
+        if normalized_fallback in {"high", "critical"}:
+            return "watch"
+
+        return normalized_fallback
 
     if value >= 4:
         return "high"
@@ -174,25 +242,27 @@ def _build_category(
     Builds one operational memory category from generated weekly content.
 
     The severity argument remains optional for backward compatibility, but the
-    source of truth is now dynamic severity from keyword evidence volume.
+    source of truth is now raw dynamic severity from keyword evidence volume.
+    Final smoothing happens later when previous memory is available.
     """
 
     hits = _keyword_hits(text, keywords)
     hit_count = len(hits)
+    has_current_evidence = bool(hits)
 
-    dynamic_severity = _calculate_dynamic_severity(hit_count)
+    raw_dynamic_severity = _calculate_dynamic_severity(hit_count)
 
     if severity is not None:
         fallback_severity = _normalize_severity(severity)
-        final_severity = max(dynamic_severity, min(fallback_severity, 2))
+        raw_severity = max(raw_dynamic_severity, min(fallback_severity, 2))
     else:
-        final_severity = dynamic_severity
+        raw_severity = raw_dynamic_severity
 
-    final_severity = _normalize_severity(final_severity)
+    raw_severity = _normalize_severity(raw_severity)
 
     evidence = [f"Detected operational language around: {hit}" for hit in hits[:5]]
 
-    if not hits:
+    if not has_current_evidence:
         return {
             "status": "unknown",
             "previous_status": "unknown",
@@ -201,19 +271,23 @@ def _build_category(
             "summary": "No clear operational pattern detected this week.",
             "evidence": [],
             "severity": 1,
+            "raw_severity": 1,
+            "evidence_hit_count": 0,
             "severity_history": [1],
             "momentum": "stable",
         }
 
     return {
-        "status": _status_from_severity(final_severity, status),
+        "status": _status_from_severity(raw_severity, status, has_current_evidence),
         "previous_status": "unknown",
         "trend_delta": "insufficient_history",
         "weeks_observed": 1,
         "summary": summary,
         "evidence": evidence,
-        "severity": final_severity,
-        "severity_history": [final_severity],
+        "severity": raw_severity,
+        "raw_severity": raw_severity,
+        "evidence_hit_count": hit_count,
+        "severity_history": [raw_severity],
         "momentum": "stable",
     }
 
@@ -363,7 +437,18 @@ def _apply_previous_memory(
             if not isinstance(current_entry, dict):
                 continue
 
-            severity = _normalize_severity(current_entry.get("severity", 1))
+            raw_severity = _normalize_severity(
+                current_entry.get("raw_severity", current_entry.get("severity", 1))
+            )
+            evidence_hit_count = current_entry.get("evidence_hit_count", 0)
+
+            try:
+                has_current_evidence = int(evidence_hit_count) > 0
+            except Exception:
+                has_current_evidence = bool(current_entry.get("evidence"))
+
+            severity = raw_severity if has_current_evidence else 1
+
             current_entry["severity"] = severity
             current_entry["severity_history"] = [severity]
             current_entry["momentum"] = "stable"
@@ -385,9 +470,35 @@ def _apply_previous_memory(
         if not isinstance(previous_entry, dict):
             previous_entry = {}
 
-        current_status = current_entry.get("status", "unknown")
         previous_status = previous_entry.get("status", "unknown")
 
+        raw_severity = _normalize_severity(
+            current_entry.get("raw_severity", current_entry.get("severity", 1))
+        )
+        evidence_hit_count = current_entry.get("evidence_hit_count", 0)
+
+        try:
+            has_current_evidence = int(evidence_hit_count) > 0
+        except Exception:
+            has_current_evidence = bool(current_entry.get("evidence"))
+
+        smoothed_severity = _smooth_severity(
+            raw_severity=raw_severity,
+            previous_entry=previous_entry,
+            has_current_evidence=has_current_evidence,
+        )
+
+        current_entry["raw_severity"] = raw_severity
+        current_entry["severity"] = smoothed_severity
+
+        fallback_status = current_entry.get("status", "unknown")
+        current_status = _status_from_severity(
+            severity=smoothed_severity,
+            fallback_status=fallback_status,
+            has_current_evidence=has_current_evidence,
+        )
+
+        current_entry["status"] = current_status
         current_entry["previous_status"] = _normalize_status(previous_status)
         current_entry["trend_delta"] = _calculate_trend_delta(
             current_status=current_status,
@@ -398,11 +509,8 @@ def _apply_previous_memory(
             previous_entry=previous_entry,
         )
 
-        severity = _normalize_severity(current_entry.get("severity", 1))
-        current_entry["severity"] = severity
-
         severity_history, momentum = _calculate_momentum(
-            severity=severity,
+            severity=smoothed_severity,
             previous_entry=previous_entry,
         )
 
@@ -473,10 +581,11 @@ def build_operational_memory(
     """
     Builds structured operational memory from generated weekly content.
 
-    Version 1.3 adds dynamic severity scoring:
-    - severity is calculated from observed keyword evidence volume
-    - severity_history continues to power momentum
-    - hardcoded severity no longer dominates every category
+    Version 1.4 adds severity smoothing:
+    - raw_severity still captures this week's keyword evidence
+    - severity is smoothed against recent history
+    - one generated week can move a category, but not whiplash it too hard
+    - no-evidence weeks can still resolve immediately
     """
 
     source_files = [
@@ -768,6 +877,8 @@ def format_operational_memory_for_prompt(memory: Dict[str, Any]) -> str:
         trend_delta = data.get("trend_delta", "insufficient_history")
         weeks_observed = data.get("weeks_observed", 0)
         severity = data.get("severity", 1)
+        raw_severity = data.get("raw_severity")
+        evidence_hit_count = data.get("evidence_hit_count")
         severity_history = data.get("severity_history", [])
         momentum = data.get("momentum", "unknown")
         summary = data.get("summary", "No clear operational pattern detected.")
@@ -778,6 +889,13 @@ def format_operational_memory_for_prompt(memory: Dict[str, Any]) -> str:
         lines.append(f"  - trend_delta: {trend_delta}")
         lines.append(f"  - weeks_observed: {weeks_observed}")
         lines.append(f"  - severity: {severity}/5")
+
+        if raw_severity is not None:
+            lines.append(f"  - raw_severity: {raw_severity}/5")
+
+        if evidence_hit_count is not None:
+            lines.append(f"  - evidence_hit_count: {evidence_hit_count}")
+
         lines.append(f"  - severity_history: {severity_history}")
         lines.append(f"  - momentum: {momentum}")
         lines.append(f"  - summary: {summary}")
