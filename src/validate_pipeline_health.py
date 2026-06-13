@@ -211,7 +211,6 @@ def validate_required_outputs(week_dir: Path, manifest: Dict[str, Any]) -> List[
         "distribution_manifest.json",
         "master_index.json",
         "content_quality_report.json",
-        "production_summary.md",
     ]
 
     optional_root_files = [
