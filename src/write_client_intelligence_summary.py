@@ -52,6 +52,13 @@ IGNORED_CATEGORY_KEYS = {
 }
 
 
+FORECAST_BUCKETS = [
+    ("likely_rising", "Likely Rising"),
+    ("likely_stable", "Likely Stable"),
+    ("likely_improving", "Likely Improving"),
+]
+
+
 FOCUS_RECOMMENDATIONS = {
     "appointment_pressure": [
         "appointment-window communication",
@@ -427,6 +434,50 @@ def get_record_severity(record: Dict[str, Any]) -> int:
     )
 
 
+def get_record_raw_severity(record: Dict[str, Any]) -> Optional[int]:
+    if "raw_severity" not in record:
+        return None
+
+    return safe_int(record.get("raw_severity"), 0)
+
+
+def get_record_evidence_hit_count(record: Dict[str, Any]) -> Optional[int]:
+    if "evidence_hit_count" not in record:
+        return None
+
+    return safe_int(record.get("evidence_hit_count"), 0)
+
+
+def get_record_momentum(record: Dict[str, Any]) -> str:
+    return safe_str(record.get("momentum") or "unknown", "unknown")
+
+
+def get_record_forecast(record: Dict[str, Any]) -> str:
+    value = safe_str(record.get("forecast") or "unknown", "unknown").lower()
+
+    if value in {"likely_rising", "likely_stable", "likely_improving", "unknown"}:
+        return value
+
+    return "unknown"
+
+
+def get_record_forecast_confidence(record: Dict[str, Any]) -> str:
+    value = safe_str(record.get("forecast_confidence") or "low", "low").lower()
+
+    if value in {"high", "medium", "low"}:
+        return value
+
+    return "low"
+
+
+def get_record_forecast_reason(record: Dict[str, Any]) -> str:
+    return safe_str(
+        record.get("forecast_reason")
+        or "insufficient history available",
+        "insufficient history available",
+    )
+
+
 def get_record_summary(category: str, record: Dict[str, Any]) -> str:
     summary = safe_str(record.get("summary") or record.get("description") or record.get("note"))
     if summary:
@@ -492,15 +543,54 @@ def classify_categories(records: Dict[str, Dict[str, Any]], client_id: str = "")
             groups["improving"].append((category, record))
         elif "resolved" in delta or "resolved" in status:
             groups["resolved"].append((category, record))
-        elif "worsen" in delta or status == "increasing":
+        elif "worsen" in delta:
             groups["worsening"].append((category, record))
         elif "persistent" in delta or get_record_weeks_observed(record) >= 2:
             groups["persistent"].append((category, record))
+        elif status == "increasing":
+            groups["worsening"].append((category, record))
         else:
             groups["other"].append((category, record))
 
     for key in groups:
         groups[key] = sorted(groups[key], key=lambda item: category_sort_key(item, client_id), reverse=True)
+
+    return groups
+
+
+def classify_forecasts(records: Dict[str, Dict[str, Any]], client_id: str = "") -> Dict[str, List[Tuple[str, Dict[str, Any]]]]:
+    groups = {
+        "likely_rising": [],
+        "likely_stable": [],
+        "likely_improving": [],
+        "unknown": [],
+    }
+
+    for category, record in records.items():
+        forecast = get_record_forecast(record)
+
+        if forecast in groups:
+            groups[forecast].append((category, record))
+        else:
+            groups["unknown"].append((category, record))
+
+    confidence_rank = {
+        "high": 3,
+        "medium": 2,
+        "low": 1,
+    }
+
+    for key in groups:
+        groups[key] = sorted(
+            groups[key],
+            key=lambda item: (
+                confidence_rank.get(get_record_forecast_confidence(item[1]), 0),
+                get_record_severity(item[1]),
+                get_record_weeks_observed(item[1]),
+                category_score(item[0], item[1], client_id),
+            ),
+            reverse=True,
+        )
 
     return groups
 
@@ -584,6 +674,23 @@ def severity_rollup(records: Dict[str, Dict[str, Any]]) -> Dict[str, List[str]]:
     return rollup
 
 
+def forecast_rollup(records: Dict[str, Dict[str, Any]]) -> Dict[str, List[str]]:
+    groups = {
+        "likely_rising": [],
+        "likely_stable": [],
+        "likely_improving": [],
+        "unknown": [],
+    }
+
+    for category, record in records.items():
+        groups[get_record_forecast(record)].append(human_category_name(category))
+
+    for key in groups:
+        groups[key] = sorted(set(groups[key]))
+
+    return groups
+
+
 def build_severity_rollup_section(records: Dict[str, Dict[str, Any]]) -> List[str]:
     lines = ["### Operational Risk Summary", ""]
 
@@ -613,18 +720,26 @@ def build_executive_readout(company_name: str, records: Dict[str, Dict[str, Any]
         )
 
     groups = classify_categories(records, client_id)
+    forecast_groups = classify_forecasts(records, client_id)
+
     persistent = len(groups["persistent"])
     new = len(groups["new"])
     worsening = len(groups["worsening"])
     improving = len(groups["improving"])
     resolved = len(groups["resolved"])
 
+    likely_rising = len(forecast_groups["likely_rising"])
+    likely_stable = len(forecast_groups["likely_stable"])
+    likely_improving = len(forecast_groups["likely_improving"])
+
     top_categories = sorted(records.items(), key=lambda item: category_sort_key(item, client_id), reverse=True)[:3]
     top_labels = [human_category_name(category) for category, _ in top_categories]
 
     base = (
         f"This week's operational memory shows **{persistent} persistent**, **{new} new**, "
-        f"**{worsening} worsening**, **{improving} improving**, and **{resolved} resolved** signals."
+        f"**{worsening} worsening**, **{improving} improving**, and **{resolved} resolved** signals. "
+        f"Forward outlook shows **{likely_rising} likely rising**, **{likely_stable} likely stable**, "
+        f"and **{likely_improving} likely improving** categories."
     )
 
     if top_labels:
@@ -685,6 +800,18 @@ def format_category_line(category: str, record: Dict[str, Any]) -> str:
     )
 
 
+def format_forecast_line(category: str, record: Dict[str, Any]) -> str:
+    confidence = get_record_forecast_confidence(record)
+    reason = get_record_forecast_reason(record)
+    severity = get_record_severity(record)
+    momentum = get_record_momentum(record)
+
+    return (
+        f"- **{human_category_name(category)}**: confidence `{confidence}`, "
+        f"severity `{severity}/5`, momentum `{momentum}`. {reason}"
+    )
+
+
 def build_group_section(title: str, items: List[Tuple[str, Dict[str, Any]]]) -> List[str]:
     lines = [f"### {title}", ""]
 
@@ -698,6 +825,41 @@ def build_group_section(title: str, items: List[Tuple[str, Dict[str, Any]]]) -> 
     return lines
 
 
+def build_forward_outlook_section(records: Dict[str, Dict[str, Any]], client_id: str) -> List[str]:
+    lines = ["## Forward Outlook", ""]
+
+    if not records:
+        lines.append("- No forecastable operational memory records available yet.")
+        lines.append("")
+        return lines
+
+    groups = classify_forecasts(records, client_id)
+
+    for key, label in FORECAST_BUCKETS:
+        lines.append(f"### {label}")
+        lines.append("")
+
+        items = groups.get(key, [])
+
+        if not items:
+            lines.append("- None detected.")
+        else:
+            for category, record in items:
+                lines.append(format_forecast_line(category, record))
+
+        lines.append("")
+
+    unknown_items = groups.get("unknown", [])
+    if unknown_items:
+        lines.append("### Unknown")
+        lines.append("")
+        for category, record in unknown_items:
+            lines.append(format_forecast_line(category, record))
+        lines.append("")
+
+    return lines
+
+
 def build_raw_snapshot(records: Dict[str, Dict[str, Any]], client_id: str) -> List[str]:
     lines = ["### Raw Category Snapshot", ""]
 
@@ -707,6 +869,9 @@ def build_raw_snapshot(records: Dict[str, Dict[str, Any]], client_id: str) -> Li
         return lines
 
     for category, record in sorted(records.items(), key=lambda item: category_sort_key(item, client_id), reverse=True):
+        raw_severity = get_record_raw_severity(record)
+        evidence_hit_count = get_record_evidence_hit_count(record)
+
         lines.extend(
             [
                 f"#### {human_category_name(category)}",
@@ -716,6 +881,21 @@ def build_raw_snapshot(records: Dict[str, Dict[str, Any]], client_id: str) -> Li
                 f"- Trend Delta: `{get_record_delta(record)}`",
                 f"- Weeks Observed: `{get_record_weeks_observed(record)}`",
                 f"- Severity: `{get_record_severity(record)}/5`",
+            ]
+        )
+
+        if raw_severity is not None:
+            lines.append(f"- Raw Severity: `{raw_severity}/5`")
+
+        if evidence_hit_count is not None:
+            lines.append(f"- Evidence Hit Count: `{evidence_hit_count}`")
+
+        lines.extend(
+            [
+                f"- Momentum: `{get_record_momentum(record)}`",
+                f"- Forecast: `{get_record_forecast(record)}`",
+                f"- Forecast Confidence: `{get_record_forecast_confidence(record)}`",
+                f"- Forecast Reason: {get_record_forecast_reason(record)}",
                 f"- Summary: {get_record_summary(category, record)}",
                 "",
             ]
@@ -796,6 +976,8 @@ def build_client_summary(week_dir: Path, client: Dict[str, Any]) -> List[str]:
     if groups["other"]:
         lines.extend(build_group_section("Other Watch Items", groups["other"]))
 
+    lines.extend(build_forward_outlook_section(records, client_id))
+
     lines.extend(
         [
             "### Current-Week Content Signals",
@@ -842,7 +1024,7 @@ def build_summary(week_dir: Path) -> str:
         f"Client Count: `{len(clients)}`",
         f"Memory Source: `operational_memory.json + trend_dashboard.json`",
         "",
-        "This report summarizes operational memory, recurring fleet signals, current-week content signals, recommended future content focus areas, and carrier-specific operational identity.",
+        "This report summarizes operational memory, recurring fleet signals, forward outlook, current-week content signals, recommended future content focus areas, and carrier-specific operational identity.",
         "",
         "---",
         "",
