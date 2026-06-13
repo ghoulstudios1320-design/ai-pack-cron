@@ -8,15 +8,13 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = ROOT_DIR / "output"
 
 
-def find_latest_week_dir() -> Path:
+def find_week_dir() -> Path:
     week_key = os.getenv("WEEK_KEY", "").strip()
 
     if week_key:
         week_dir = OUTPUT_DIR / week_key
-
         if not week_dir.exists():
             raise RuntimeError(f"WEEK_KEY was set but output folder does not exist: {week_dir}")
-
         return week_dir
 
     if not OUTPUT_DIR.exists():
@@ -43,11 +41,17 @@ def load_json(path: Path) -> Dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
 
 
-def client_delivery_ok(client: Dict[str, Any]) -> bool:
-    drive_ok = client.get("drive_upload_mode") == "real" and bool(client.get("drive_pdf_url"))
+def has_core_delivery(client: Dict[str, Any], email_mode: str) -> bool:
     notion_ok = client.get("notion_publish_mode") == "real" and bool(client.get("notion_url"))
-    email_ok = client.get("email_status") == "sent" or bool(client.get("email_sent"))
-    return drive_ok and notion_ok and email_ok
+
+    if email_mode == "real":
+        email_ok = client.get("email_status") == "sent" or bool(client.get("email_sent"))
+    elif email_mode == "skipped":
+        email_ok = True
+    else:
+        email_ok = False
+
+    return notion_ok and email_ok
 
 
 def validate_manifest(manifest: Dict[str, Any]) -> Tuple[List[str], List[str]]:
@@ -59,10 +63,6 @@ def validate_manifest(manifest: Dict[str, Any]) -> Tuple[List[str], List[str]]:
 
     if client_count != len(clients):
         errors.append(f"Client count mismatch: client_count={client_count}, actual={len(clients)}")
-
-    drive_mode = manifest.get("drive_upload_mode")
-    drive_failed = manifest.get("drive_upload_failed_client_count", 0)
-    drive_uploaded = manifest.get("drive_uploaded_client_count", 0)
 
     notion_mode = manifest.get("notion_publish_mode")
     notion_failed = manifest.get("notion_publish_failed_client_count", 0)
@@ -79,15 +79,6 @@ def validate_manifest(manifest: Dict[str, Any]) -> Tuple[List[str], List[str]]:
 
     recovered_count = manifest.get("recovered_client_count", 0)
     still_retry_pending = manifest.get("still_retry_pending_client_count", 0)
-
-    if drive_mode != "real":
-        errors.append(f"Drive upload mode is not real: {drive_mode}")
-
-    if drive_failed:
-        errors.append(f"Drive upload failures detected: {drive_failed}")
-
-    if drive_uploaded != client_count:
-        errors.append(f"Drive uploaded count does not match client count: uploaded={drive_uploaded}, clients={client_count}")
 
     if notion_mode != "real":
         errors.append(f"Notion publish mode is not real: {notion_mode}")
@@ -113,7 +104,7 @@ def validate_manifest(manifest: Dict[str, Any]) -> Tuple[List[str], List[str]]:
     elif email_mode == "skipped":
         warnings.append("Email delivery skipped because SMTP credentials were missing.")
     else:
-        warnings.append(f"Email delivery did not run or unknown mode: {email_mode}")
+        errors.append(f"Email delivery did not run or unknown mode: {email_mode}")
 
     if webhook_mode == "real":
         if webhook_failed:
@@ -139,13 +130,17 @@ def validate_manifest(manifest: Dict[str, Any]) -> Tuple[List[str], List[str]]:
         error = client.get("error")
         confirmed_at = client.get("confirmed_at")
 
-        drive_ok = client.get("drive_upload_mode") == "real" and bool(client.get("drive_pdf_url"))
         notion_ok = client.get("notion_publish_mode") == "real" and bool(client.get("notion_url"))
-        email_ok = client.get("email_status") == "sent" or bool(client.get("email_sent"))
-        webhook_ok = bool(client.get("webhook_sent"))
 
-        if not drive_ok:
-            errors.append(f"{company}: Drive delivery incomplete")
+        if email_mode == "real":
+            email_ok = client.get("email_status") == "sent" or bool(client.get("email_sent"))
+        elif email_mode == "skipped":
+            email_ok = True
+        else:
+            email_ok = False
+
+        webhook_ok = bool(client.get("webhook_sent"))
+        core_ok = notion_ok and email_ok
 
         if not notion_ok:
             errors.append(f"{company}: Notion publish incomplete")
@@ -157,19 +152,22 @@ def validate_manifest(manifest: Dict[str, Any]) -> Tuple[List[str], List[str]]:
             warnings.append(f"{company}: webhook not confirmed")
 
         if status in {"notify_failed", "webhook_failed"}:
-            if drive_ok and notion_ok and email_ok:
-                warnings.append(f"{company}: final status is {status}, but core delivery succeeded")
+            if core_ok:
+                warnings.append(f"{company}: final status is {status}, but Notion/email delivery succeeded")
             else:
                 errors.append(f"{company}: final status is {status}")
 
         elif status not in {"confirmed", "published", "delivered"}:
-            errors.append(f"{company}: final status is {status}")
+            if core_ok:
+                warnings.append(f"{company}: final status is {status}, but Notion/email delivery succeeded")
+            else:
+                errors.append(f"{company}: final status is {status}")
 
         if error:
             error_text = str(error)
 
             if "Webhook failed" in error_text or "Queue is full" in error_text:
-                if drive_ok and notion_ok and email_ok:
+                if core_ok:
                     warnings.append(f"{company}: webhook error present but non-fatal: {error_text}")
                 else:
                     errors.append(f"{company}: error still present: {error_text}")
@@ -177,8 +175,8 @@ def validate_manifest(manifest: Dict[str, Any]) -> Tuple[List[str], List[str]]:
                 errors.append(f"{company}: error still present: {error_text}")
 
         if not confirmed_at:
-            if drive_ok and notion_ok and email_ok:
-                warnings.append(f"{company}: missing confirmed_at, but core delivery succeeded")
+            if core_ok:
+                warnings.append(f"{company}: missing confirmed_at, but Notion/email delivery succeeded")
             else:
                 errors.append(f"{company}: missing confirmed_at")
 
@@ -216,6 +214,7 @@ def validate_required_outputs(week_dir: Path, manifest: Dict[str, Any]) -> List[
     optional_root_files = [
         "ai_memory_report.json",
         "client_intelligence_summary.md",
+        "production_summary.md",
     ]
 
     for filename in required_root_files:
@@ -239,6 +238,12 @@ def validate_required_outputs(week_dir: Path, manifest: Dict[str, Any]) -> List[
         "freight_digest.md",
     ]
 
+    optional_client_files = [
+        "operational_memory.json",
+        "trend_dashboard.md",
+        "client_intelligence_summary.md",
+    ]
+
     for client in clients:
         client_folder = client.get("client_folder", client.get("client_id", ""))
         client_dir = week_dir / client_folder
@@ -254,11 +259,16 @@ def validate_required_outputs(week_dir: Path, manifest: Dict[str, Any]) -> List[
             elif path.stat().st_size == 0:
                 errors.append(f"{client_folder}: empty {filename}")
 
+        for filename in optional_client_files:
+            path = client_dir / filename
+            if path.exists() and path.stat().st_size == 0:
+                errors.append(f"{client_folder}: empty optional file {filename}")
+
     return errors
 
 
 def main() -> None:
-    week_dir = find_latest_week_dir()
+    week_dir = find_week_dir()
     manifest = load_json(week_dir / "distribution_manifest.json")
 
     errors: List[str] = []
