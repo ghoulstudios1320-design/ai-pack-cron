@@ -1,72 +1,106 @@
 import json
-from collections import Counter, defaultdict
+import os
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = ROOT_DIR / "output"
 
 
-SECTION_LABELS = {
-    "recruiting_posts": "Recruiting",
-    "social_posts": "Social",
-    "safety_reminders": "Safety",
-    "company_update": "Company Update",
-    "freight_digest": "Freight Digest",
+CATEGORY_LABELS = {
+    "appointment_pressure": "Appointment Pressure",
+    "detention": "Detention",
+    "freight_volume": "Freight Volume",
+    "weather_disruption": "Weather Disruption",
+    "equipment_issues": "Equipment Issues",
+    "customer_pressure": "Customer Pressure",
+    "lane_activity": "Lane Activity",
 }
 
 
 FOCUS_RECOMMENDATIONS = {
-    "weather / seasonal road conditions": [
-        "weather-aware routing",
-        "driver fatigue during weather delays",
-        "equipment readiness in changing conditions",
+    "appointment_pressure": [
+        "appointment-window communication",
+        "earlier driver-dispatch updates",
+        "delivery timing expectations",
     ],
-    "detention and appointment pressure": [
+    "detention": [
         "detention documentation habits",
-        "appointment communication expectations",
+        "dock-delay escalation",
         "driver time protection",
     ],
-    "parking and staging limits": [
-        "parking strategy",
-        "legal staging options",
-        "pre-planned rest breaks",
+    "freight_volume": [
+        "lane-specific freight visibility",
+        "load-flow monitoring",
+        "market demand messaging",
     ],
-    "metro congestion and routing pressure": [
-        "route timing strategy",
-        "metro delay communication",
-        "traffic-aware dispatch planning",
+    "weather_disruption": [
+        "weather-aware routing",
+        "safe staging during weather delays",
+        "driver fatigue during adverse conditions",
     ],
-    "paperwork and documentation": [
-        "clean paperwork habits",
-        "BOL/POD accuracy",
-        "detention proof collection",
-    ],
-    "equipment inspections and maintenance": [
+    "equipment_issues": [
         "pre-trip inspection discipline",
         "preventive maintenance reporting",
         "equipment readiness messaging",
     ],
-    "fatigue and hours-of-service planning": [
-        "HOS planning",
-        "fatigue prevention",
-        "reset strategy",
+    "customer_pressure": [
+        "proactive customer updates",
+        "realistic ETA communication",
+        "service reliability messaging",
     ],
-    "backing, dock, and customer-site safety": [
-        "backing safety",
-        "dock awareness",
-        "customer-site hazard communication",
+    "lane_activity": [
+        "lane-specific recruiting hooks",
+        "route planning strategy",
+        "regional operations visibility",
     ],
 }
+
+
+TEXT_SIGNAL_KEYWORDS = {
+    "dispatch": ["dispatch", "communication", "appointment"],
+    "weather": ["weather", "winter", "ice", "snow", "rain", "fog", "wind", "storm"],
+    "safety": ["safety", "backing", "fatigue", "hours of service", "hos", "spotter"],
+    "detention": ["detention", "waiting", "wait time", "dock delay", "loading delay", "unloading delay"],
+    "equipment": ["equipment", "maintenance", "pre-trip", "post-trip", "tractor", "trailer", "tires", "brakes"],
+    "congestion": ["congestion", "traffic", "metro", "rush hour", "urban"],
+    "parking": ["parking", "staging", "overnight", "truck stop", "rest area"],
+}
+
+
+CONTENT_FILES = [
+    "recruiting_posts.md",
+    "social_posts.md",
+    "safety_reminders.md",
+    "company_update.md",
+    "freight_digest.md",
+]
 
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def find_latest_week_dir() -> Path:
+def get_week_key() -> str:
+    override = os.getenv("WEEK_KEY", "").strip()
+    if override:
+        return override
+
+    today = datetime.now(timezone.utc).date()
+    iso_year, iso_week, _ = today.isocalendar()
+    return f"{iso_year}-W{iso_week:02d}"
+
+
+def find_week_dir() -> Path:
+    week_key = get_week_key()
+    week_dir = OUTPUT_DIR / week_key
+
+    if week_dir.exists():
+        return week_dir
+
     if not OUTPUT_DIR.exists():
         raise RuntimeError(f"Missing output directory: {OUTPUT_DIR}")
 
@@ -88,7 +122,11 @@ def load_json(path: Path) -> Optional[Dict[str, Any]]:
     if not path.exists():
         return None
 
-    return json.loads(path.read_text(encoding="utf-8"))
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        print(f"Could not read JSON {path}: {exc}")
+        return None
 
 
 def load_text(path: Path) -> str:
@@ -98,87 +136,248 @@ def load_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="replace").strip()
 
 
+def safe_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return default
+
+
+def safe_str(value: Any, default: str = "") -> str:
+    if value is None:
+        return default
+    return str(value).strip()
+
+
+def get_manifest_clients(week_dir: Path) -> List[Dict[str, Any]]:
+    manifest = load_json(week_dir / "distribution_manifest.json")
+    if not manifest:
+        raise RuntimeError(f"Missing distribution_manifest.json in {week_dir}")
+
+    return manifest.get("clients", [])
+
+
 def get_client_meta(week_dir: Path, client_folder: str) -> Dict[str, Any]:
-    meta = load_json(week_dir / client_folder / "meta.json")
-    return meta or {}
+    return load_json(week_dir / client_folder / "meta.json") or {}
 
 
-def collect_memory_for_client(
-    memory_report: Dict[str, Any],
-    client_id: str,
-) -> Dict[str, Any]:
-    clients = memory_report.get("clients", {}) if memory_report else {}
-    return clients.get(client_id, {})
+def normalize_category_name(raw_name: str) -> str:
+    value = str(raw_name).strip()
+    snake = value.lower().replace(" ", "_").replace("-", "_")
+    snake = "".join(ch for ch in snake if ch.isalnum() or ch == "_")
+    return snake
 
 
-def collect_trends(client_memory: Dict[str, Any]) -> Dict[str, Any]:
-    sections = client_memory.get("sections", {})
-    theme_counter: Counter[str] = Counter()
-    section_theme_map: Dict[str, List[str]] = {}
-    prior_weeks: List[str] = []
-    memory_sections = 0
-
-    for section_name, section_record in sections.items():
-        if section_record.get("memory_available"):
-            memory_sections += 1
-
-        themes = section_record.get("trend_themes_detected", [])
-        section_theme_map[section_name] = themes
-
-        for theme in themes:
-            theme_counter[theme] += 1
-
-        for week in section_record.get("prior_weeks_used", []):
-            if week not in prior_weeks:
-                prior_weeks.append(week)
-
-    return {
-        "theme_counter": theme_counter,
-        "section_theme_map": section_theme_map,
-        "prior_weeks": prior_weeks,
-        "memory_sections": memory_sections,
-        "section_count": len(sections),
-    }
+def human_category_name(category: str) -> str:
+    return CATEGORY_LABELS.get(category, category.replace("_", " ").title())
 
 
-def extract_client_text_signals(week_dir: Path, client_folder: str) -> Counter[str]:
-    signal_keywords = {
-        "weather": ["weather", "winter", "ice", "snow", "rain", "fog", "wind"],
-        "detention": ["detention", "waiting", "wait time", "dock delay"],
-        "parking": ["parking", "staging", "overnight"],
-        "equipment": ["equipment", "maintenance", "pre-trip", "tractor", "trailer"],
-        "dispatch": ["dispatch", "communication", "appointment"],
-        "safety": ["safety", "backing", "fatigue", "hours of service", "hos"],
-        "congestion": ["congestion", "traffic", "metro", "rush hour"],
-    }
+def extract_category_records_from_mapping(data: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    records: Dict[str, Dict[str, Any]] = {}
 
-    files = [
-        "recruiting_posts.md",
-        "social_posts.md",
-        "safety_reminders.md",
-        "company_update.md",
-        "freight_digest.md",
+    for raw_category, raw_record in data.items():
+        category = normalize_category_name(raw_category)
+
+        if category in {
+            "client_id",
+            "company_name",
+            "week",
+            "generated_at",
+            "updated_at",
+            "memory_version",
+            "version",
+            "summary",
+            "executive_readout",
+        }:
+            continue
+
+        if isinstance(raw_record, dict):
+            records[category] = raw_record
+
+    return records
+
+
+def extract_category_records(data: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    if not data:
+        return {}
+
+    candidates = [
+        data.get("categories"),
+        data.get("signals"),
+        data.get("memory"),
+        data.get("operational_memory"),
+        data.get("trend_categories"),
+        data.get("category_snapshot"),
     ]
 
+    for candidate in candidates:
+        if isinstance(candidate, dict):
+            records = extract_category_records_from_mapping(candidate)
+            if records:
+                return records
+
+    if isinstance(data.get("items"), list):
+        records: Dict[str, Dict[str, Any]] = {}
+        for item in data["items"]:
+            if not isinstance(item, dict):
+                continue
+
+            raw_category = item.get("category") or item.get("name") or item.get("signal") or item.get("type")
+
+            if not raw_category:
+                continue
+
+            records[normalize_category_name(str(raw_category))] = item
+
+        if records:
+            return records
+
+    return extract_category_records_from_mapping(data)
+
+
+def merge_category_records(
+    operational_records: Dict[str, Dict[str, Any]],
+    trend_records: Dict[str, Dict[str, Any]],
+) -> Dict[str, Dict[str, Any]]:
+    merged: Dict[str, Dict[str, Any]] = {}
+
+    for category in sorted(set(operational_records) | set(trend_records)):
+        merged_record: Dict[str, Any] = {}
+
+        if category in operational_records:
+            merged_record.update(operational_records[category])
+
+        if category in trend_records:
+            merged_record.update({k: v for k, v in trend_records[category].items() if v not in [None, ""]})
+
+        merged[category] = merged_record
+
+    return merged
+
+
+def get_record_status(record: Dict[str, Any]) -> str:
+    return safe_str(
+        record.get("status")
+        or record.get("current_status")
+        or record.get("state")
+        or record.get("level")
+        or "watch"
+    )
+
+
+def get_record_previous_status(record: Dict[str, Any]) -> str:
+    return safe_str(
+        record.get("previous_status")
+        or record.get("prior_status")
+        or record.get("last_status")
+        or ""
+    )
+
+
+def get_record_delta(record: Dict[str, Any]) -> str:
+    return safe_str(record.get("trend_delta") or record.get("delta") or record.get("trend") or "persistent")
+
+
+def get_record_weeks_observed(record: Dict[str, Any]) -> int:
+    return safe_int(
+        record.get("weeks_observed")
+        or record.get("observed_weeks")
+        or record.get("weeks_seen")
+        or record.get("week_count")
+        or record.get("count")
+        or 0
+    )
+
+
+def get_record_severity(record: Dict[str, Any]) -> int:
+    return safe_int(
+        record.get("severity")
+        or record.get("severity_score")
+        or record.get("risk_score")
+        or record.get("score")
+        or 0
+    )
+
+
+def get_record_summary(category: str, record: Dict[str, Any]) -> str:
+    summary = safe_str(record.get("summary") or record.get("description") or record.get("note"))
+    if summary:
+        return summary
+
+    label = human_category_name(category)
+    return f"{label} appeared in recent fleet communication and operational memory."
+
+
+def severity_label(value: int) -> str:
+    if value >= 4:
+        return "High"
+    if value == 3:
+        return "Moderate"
+    if value in {1, 2}:
+        return "Low"
+    return "Unscored"
+
+
+def category_sort_key(item: Tuple[str, Dict[str, Any]]) -> Tuple[int, int, str]:
+    category, record = item
+    return (get_record_weeks_observed(record), get_record_severity(record), category)
+
+
+def classify_categories(records: Dict[str, Dict[str, Any]]) -> Dict[str, List[Tuple[str, Dict[str, Any]]]]:
+    groups = {
+        "worsening": [],
+        "new": [],
+        "persistent": [],
+        "improving": [],
+        "resolved": [],
+        "other": [],
+    }
+
+    for category, record in records.items():
+        delta = get_record_delta(record).lower()
+        status = get_record_status(record).lower()
+
+        if "worsen" in delta or "increasing" in delta or status == "increasing":
+            groups["worsening"].append((category, record))
+        elif "new" in delta:
+            groups["new"].append((category, record))
+        elif "improv" in delta or "decreasing" in delta:
+            groups["improving"].append((category, record))
+        elif "resolved" in delta or "resolved" in status:
+            groups["resolved"].append((category, record))
+        elif "persistent" in delta or get_record_weeks_observed(record) >= 2:
+            groups["persistent"].append((category, record))
+        else:
+            groups["other"].append((category, record))
+
+    for key in groups:
+        groups[key] = sorted(groups[key], key=category_sort_key, reverse=True)
+
+    return groups
+
+
+def extract_current_week_signals(week_dir: Path, client_folder: str) -> Counter[str]:
     combined = ""
 
-    for filename in files:
+    for filename in CONTENT_FILES:
         combined += "\n" + load_text(week_dir / client_folder / filename).lower()
 
     counter: Counter[str] = Counter()
 
-    for label, keywords in signal_keywords.items():
+    for signal, keywords in TEXT_SIGNAL_KEYWORDS.items():
         for keyword in keywords:
-            counter[label] += combined.count(keyword)
+            counter[signal] += combined.count(keyword)
 
     return counter
 
 
-def recommended_focus_areas(theme_counter: Counter[str]) -> List[str]:
+def recommended_focus_areas(records: Dict[str, Dict[str, Any]]) -> List[str]:
     recommendations: List[str] = []
 
-    for theme, _ in theme_counter.most_common(5):
-        for item in FOCUS_RECOMMENDATIONS.get(theme, []):
+    sorted_categories = sorted(records.items(), key=category_sort_key, reverse=True)
+
+    for category, _record in sorted_categories:
+        for item in FOCUS_RECOMMENDATIONS.get(category, []):
             if item not in recommendations:
                 recommendations.append(item)
 
@@ -188,47 +387,163 @@ def recommended_focus_areas(theme_counter: Counter[str]) -> List[str]:
         "detention documentation",
         "safe routing decisions",
         "equipment readiness",
+        "customer update discipline",
     ]
 
     for item in defaults:
-        if len(recommendations) >= 6:
+        if len(recommendations) >= 8:
             break
-
         if item not in recommendations:
             recommendations.append(item)
 
-    return recommendations[:6]
+    return recommendations[:8]
 
 
-def build_client_summary(
-    week_dir: Path,
-    client: Dict[str, Any],
-    memory_report: Dict[str, Any],
-) -> List[str]:
-    client_id = client.get("client_id", "")
-    client_folder = client.get("client_folder", client_id)
-    company_name = client.get("company_name", client_id)
+def memory_coverage(records: Dict[str, Dict[str, Any]]) -> str:
+    if not records:
+        return "No operational memory available"
 
+    max_weeks = max(get_record_weeks_observed(record) for record in records.values())
+    category_count = len(records)
+
+    if max_weeks:
+        return f"{max_weeks} observed weeks across {category_count} operational categories"
+
+    return f"{category_count} operational categories detected"
+
+
+def build_executive_readout(company_name: str, records: Dict[str, Dict[str, Any]]) -> str:
+    if not records:
+        return (
+            f"{company_name} does not have enough operational memory yet for a strong intelligence read. "
+            "Continue generating weekly packs to build a clearer operating profile."
+        )
+
+    groups = classify_categories(records)
+    persistent = len(groups["persistent"])
+    new = len(groups["new"])
+    worsening = len(groups["worsening"])
+    improving = len(groups["improving"])
+    resolved = len(groups["resolved"])
+
+    top_categories = sorted(records.items(), key=category_sort_key, reverse=True)[:3]
+    top_labels = [human_category_name(category) for category, _ in top_categories]
+
+    base = (
+        f"This week's operational memory shows {persistent} persistent, {new} new, "
+        f"{worsening} worsening, {improving} improving, and {resolved} resolved signals."
+    )
+
+    if top_labels:
+        base += f" The strongest recurring themes are {', '.join(top_labels)}."
+
+    return base
+
+
+def build_operational_identity(company_name: str, records: Dict[str, Dict[str, Any]]) -> str:
+    if not records:
+        return (
+            f"{company_name}'s operational identity is still forming. "
+            "More weekly runs are needed before persistent patterns can be summarized confidently."
+        )
+
+    sorted_categories = sorted(records.items(), key=category_sort_key, reverse=True)[:4]
+    labels = [human_category_name(category).lower() for category, _record in sorted_categories]
+
+    if len(labels) >= 3:
+        return (
+            f"{company_name} is developing a stable operating profile centered around "
+            f"{labels[0]}, {labels[1]}, and {labels[2]}. These themes should guide future "
+            "recruiting, safety, dispatch, and freight communication so the content stays specific "
+            "to the fleet instead of becoming generic."
+        )
+
+    return (
+        f"{company_name}'s strongest current operating theme is {labels[0]}. "
+        "Future content should preserve this identity while rotating supporting weekly topics."
+    )
+
+
+def format_category_line(category: str, record: Dict[str, Any]) -> str:
+    status = get_record_status(record)
+    previous = get_record_previous_status(record)
+    delta = get_record_delta(record)
+    weeks = get_record_weeks_observed(record)
+    severity = get_record_severity(record)
+    severity_text = severity_label(severity)
+
+    previous_text = f", previous: `{previous}`" if previous else ""
+
+    return (
+        f"- **{human_category_name(category)}**: {delta} "
+        f"({severity_text}, current: `{status}`{previous_text}, observed for `{weeks}` weeks). "
+        f"{get_record_summary(category, record)}"
+    )
+
+
+def build_group_section(title: str, items: List[Tuple[str, Dict[str, Any]]]) -> List[str]:
+    lines = [f"### {title}", ""]
+
+    if not items:
+        lines.append("- None detected.")
+    else:
+        for category, record in items:
+            lines.append(format_category_line(category, record))
+
+    lines.append("")
+    return lines
+
+
+def build_raw_snapshot(records: Dict[str, Dict[str, Any]]) -> List[str]:
+    lines = ["### Raw Category Snapshot", ""]
+
+    if not records:
+        lines.append("- No operational memory records available.")
+        lines.append("")
+        return lines
+
+    for category, record in sorted(records.items(), key=category_sort_key, reverse=True):
+        lines.extend(
+            [
+                f"#### {human_category_name(category)}",
+                "",
+                f"- Status: `{get_record_status(record)}`",
+                f"- Previous Status: `{get_record_previous_status(record) or 'none'}`",
+                f"- Trend Delta: `{get_record_delta(record)}`",
+                f"- Weeks Observed: `{get_record_weeks_observed(record)}`",
+                f"- Severity: `{get_record_severity(record)}/5`",
+                f"- Summary: {get_record_summary(category, record)}",
+                "",
+            ]
+        )
+
+    return lines
+
+
+def build_client_summary(week_dir: Path, client: Dict[str, Any]) -> List[str]:
+    client_id = safe_str(client.get("client_id"))
+    client_folder = safe_str(client.get("client_folder") or client_id)
+    company_name = safe_str(client.get("company_name") or client_id)
+
+    client_dir = week_dir / client_folder
     meta = get_client_meta(week_dir, client_folder)
-    client_memory = collect_memory_for_client(memory_report, client_id)
-    trend_data = collect_trends(client_memory)
-    signal_counter = extract_client_text_signals(week_dir, client_folder)
 
-    theme_counter: Counter[str] = trend_data["theme_counter"]
-    section_theme_map: Dict[str, List[str]] = trend_data["section_theme_map"]
-    prior_weeks: List[str] = trend_data["prior_weeks"]
-    memory_sections = trend_data["memory_sections"]
-    section_count = trend_data["section_count"]
+    operational_memory = load_json(client_dir / "operational_memory.json") or {}
+    trend_dashboard = load_json(client_dir / "trend_dashboard.json") or {}
+
+    operational_records = extract_category_records(operational_memory)
+    trend_records = extract_category_records(trend_dashboard)
+    records = merge_category_records(operational_records, trend_records)
+
+    groups = classify_categories(records)
+    signals = extract_current_week_signals(week_dir, client_folder)
+    focus_areas = recommended_focus_areas(records)
 
     fleet_size = meta.get("fleet_size", "")
     region = meta.get("region", "")
     equipment = meta.get("equipment", "")
     hiring_for = meta.get("hiring_for", "")
     tagline = meta.get("tagline", "")
-
-    top_themes = theme_counter.most_common(6)
-    top_signals = signal_counter.most_common(6)
-    focus_areas = recommended_focus_areas(theme_counter)
 
     lines: List[str] = [
         f"## {company_name}",
@@ -246,140 +561,79 @@ def build_client_summary(
             f"- Region: `{region}`",
             f"- Equipment: `{equipment}`",
             f"- Hiring Focus: `{hiring_for}`",
-            f"- Memory Coverage: `{memory_sections}/{section_count}` sections",
-            f"- Prior Weeks Used: `{', '.join(prior_weeks) if prior_weeks else 'none'}`",
+            f"- Memory Coverage: `{memory_coverage(records)}`",
             "",
-            "### Recurring Operational Themes",
+            "### Executive Readout",
             "",
-        ]
-    )
-
-    if top_themes:
-        for theme, count in top_themes:
-            lines.append(f"- {theme} `{count}`")
-    else:
-        lines.append("- No recurring memory themes detected yet.")
-
-    lines.extend(
-        [
+            build_executive_readout(company_name, records),
             "",
-            "### Current-Week Content Signals",
+            "### Operational Identity",
+            "",
+            build_operational_identity(company_name, records),
+            "",
+            "## Trend Breakdown",
             "",
         ]
     )
 
-    if top_signals:
-        for signal, count in top_signals:
-            if count > 0:
-                lines.append(f"- {signal}: `{count}` mentions")
-    else:
-        lines.append("- No strong current-week text signals detected.")
+    lines.extend(build_group_section("Worsening", groups["worsening"]))
+    lines.extend(build_group_section("New", groups["new"]))
+    lines.extend(build_group_section("Persistent", groups["persistent"]))
+    lines.extend(build_group_section("Improving", groups["improving"]))
+    lines.extend(build_group_section("Resolved", groups["resolved"]))
 
-    lines.extend(
-        [
-            "",
-            "### Section Theme Breakdown",
-            "",
-            "| Section | Themes |",
-            "|---|---|",
-        ]
-    )
+    if groups["other"]:
+        lines.extend(build_group_section("Other Watch Items", groups["other"]))
 
-    if section_theme_map:
-        for section_name, themes in section_theme_map.items():
-            label = SECTION_LABELS.get(section_name, section_name)
-            theme_text = ", ".join(themes) if themes else "none"
-            lines.append(f"| {label} | {theme_text} |")
-    else:
-        lines.append("| none | no section memory available |")
+    lines.extend(["### Current-Week Content Signals", ""])
 
-    lines.extend(
-        [
-            "",
-            "### Recommended Future Content Focus",
-            "",
-        ]
-    )
+    emitted_signal = False
+    for signal, count in signals.most_common(8):
+        if count <= 0:
+            continue
+        emitted_signal = True
+        lines.append(f"- {signal}: `{count}` mentions")
+
+    if not emitted_signal:
+        lines.append("- No strong current-week content signals detected.")
+
+    lines.extend(["", "### Recommended Future Content Focus", ""])
 
     for item in focus_areas:
         lines.append(f"- {item}")
 
-    lines.extend(
-        [
-            "",
-            "### Intelligence Read",
-            "",
-            build_intelligence_read(company_name, top_themes, top_signals, prior_weeks),
-            "",
-            "---",
-            "",
-        ]
-    )
+    lines.extend([""])
+    lines.extend(build_raw_snapshot(records))
+    lines.extend(["---", ""])
 
     return lines
 
 
-def build_intelligence_read(
-    company_name: str,
-    top_themes: List[tuple[str, int]],
-    top_signals: List[tuple[str, int]],
-    prior_weeks: List[str],
-) -> str:
-    if not top_themes:
-        return (
-            f"{company_name} does not have enough trend memory yet for a strong intelligence read. "
-            "Continue generating weekly packs to build a clearer operating profile."
-        )
-
-    primary_theme = top_themes[0][0]
-    secondary_theme = top_themes[1][0] if len(top_themes) > 1 else None
-    weeks_text = ", ".join(prior_weeks) if prior_weeks else "recent weeks"
-
-    if secondary_theme:
-        return (
-            f"{company_name}'s recent communication pattern is anchored around {primary_theme}, "
-            f"with secondary emphasis on {secondary_theme}. Based on memory from {weeks_text}, "
-            "future content should keep the same operational identity while rotating the weekly focus "
-            "to avoid sounding repetitive."
-        )
-
-    return (
-        f"{company_name}'s recent communication pattern is anchored around {primary_theme}. "
-        f"Based on memory from {weeks_text}, future content should maintain continuity while rotating "
-        "supporting topics across recruiting, safety, and operations."
-    )
-
-
 def build_summary(week_dir: Path) -> str:
-    manifest = load_json(week_dir / "distribution_manifest.json")
-
-    if not manifest:
-        raise RuntimeError(f"Missing distribution manifest in {week_dir}")
-
-    memory_report = load_json(week_dir / "ai_memory_report.json") or {}
-    clients = manifest.get("clients", [])
-    week = manifest.get("week", week_dir.name)
+    clients = get_manifest_clients(week_dir)
+    week = week_dir.name
 
     lines: List[str] = [
         f"# Client Intelligence Summary - {week}",
         "",
         f"Written At: `{now_iso()}`",
         f"Client Count: `{len(clients)}`",
+        "Memory Source: `operational_memory.json + trend_dashboard.json`",
         "",
-        "This report summarizes recurring operational themes, AI memory coverage, current-week content signals, and recommended future content focus areas.",
+        "This report summarizes operational memory, recurring fleet signals, current-week content signals, and recommended future content focus areas.",
         "",
         "---",
         "",
     ]
 
     for client in clients:
-        lines.extend(build_client_summary(week_dir, client, memory_report))
+        lines.extend(build_client_summary(week_dir, client))
 
     return "\n".join(lines)
 
 
 def main() -> None:
-    week_dir = find_latest_week_dir()
+    week_dir = find_week_dir()
     summary = build_summary(week_dir)
 
     path = week_dir / "client_intelligence_summary.md"
