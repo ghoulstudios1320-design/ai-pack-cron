@@ -5,12 +5,15 @@ import smtplib
 from datetime import datetime, timezone
 from email.message import EmailMessage
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 OUTPUT_DIR = ROOT_DIR / "output"
 CLIENTS_DIR = ROOT_DIR / "clients"
+
+
+Attachment = Tuple[Path, str]
 
 
 def now_iso() -> str:
@@ -131,7 +134,49 @@ def resolve_recipients(client_record: Dict[str, Any]) -> List[str]:
     return split_emails(os.getenv("PACK_EMAIL_TO", "").strip())
 
 
-def resolve_attachment_paths(week_dir: Path, client: Dict[str, Any]) -> List[Path]:
+def clean_filename_part(value: Any, fallback: str = "Client") -> str:
+    text = str(value or fallback).strip()
+
+    if not text:
+        text = fallback
+
+    allowed = []
+    for char in text:
+        if char.isalnum():
+            allowed.append(char)
+        elif char in {" ", "-", "_"}:
+            allowed.append("_")
+
+    cleaned = "".join(allowed)
+    while "__" in cleaned:
+        cleaned = cleaned.replace("__", "_")
+
+    return cleaned.strip("_") or fallback
+
+
+def customer_pdf_filename(client: Dict[str, Any], week: str) -> str:
+    company_name = client.get("company_name", client.get("client_id", "Client"))
+    company_slug = clean_filename_part(company_name)
+    week_slug = clean_filename_part(week, "Week")
+
+    return f"{company_slug}_Weekly_Fleet_Packet_{week_slug}.pdf"
+
+
+def customer_bundle_filename(path: Path, client: Dict[str, Any], week: str) -> str:
+    company_name = client.get("company_name", client.get("client_id", "Client"))
+    company_slug = clean_filename_part(company_name)
+    week_slug = clean_filename_part(week, "Week")
+
+    if path.suffix.lower() == ".zip":
+        return f"{company_slug}_Production_Bundle_{week_slug}.zip"
+
+    if path.suffix.lower() == ".md":
+        return f"{company_slug}_Weekly_Fleet_Packet_{week_slug}.md"
+
+    return path.name
+
+
+def resolve_attachment_paths(week_dir: Path, client: Dict[str, Any], week: str) -> List[Attachment]:
     """Resolve customer-facing email attachments.
 
     Default customer delivery is PDF-only for a frictionless experience.
@@ -140,7 +185,7 @@ def resolve_attachment_paths(week_dir: Path, client: Dict[str, Any]) -> List[Pat
     markdown file for internal testing or admin delivery.
     """
 
-    paths: List[Path] = []
+    attachments: List[Attachment] = []
 
     pdf_rel = client.get("pdf")
     zip_rel = client.get("package_zip")
@@ -148,7 +193,8 @@ def resolve_attachment_paths(week_dir: Path, client: Dict[str, Any]) -> List[Pat
 
     rel_paths = [pdf_rel]
 
-    if truthy_env("WHOA_EMAIL_INCLUDE_BUNDLE", default=False):
+    include_bundle = truthy_env("WHOA_EMAIL_INCLUDE_BUNDLE", default=False)
+    if include_bundle:
         rel_paths.extend([zip_rel, markdown_rel])
 
     for rel_path in rel_paths:
@@ -157,15 +203,21 @@ def resolve_attachment_paths(week_dir: Path, client: Dict[str, Any]) -> List[Pat
 
         path = week_dir / rel_path
 
-        if path.exists() and path.is_file():
-            paths.append(path)
-        else:
+        if not path.exists() or not path.is_file():
             print(f"Attachment missing, skipping: {path}")
+            continue
 
-    return paths
+        if path.suffix.lower() == ".pdf":
+            display_name = customer_pdf_filename(client, week)
+        else:
+            display_name = customer_bundle_filename(path, client, week)
+
+        attachments.append((path, display_name))
+
+    return attachments
 
 
-def build_email_body(client: Dict[str, Any], week: str, attachments: List[Path]) -> str:
+def build_email_body(client: Dict[str, Any], week: str, attachments: List[Attachment]) -> str:
     company_name = client.get("company_name", client.get("client_id", "Client"))
 
     lines = [
@@ -190,21 +242,24 @@ def build_email_body(client: Dict[str, Any], week: str, attachments: List[Path])
 
     if attachments:
         lines.append("Attached file:")
-        for path in attachments:
-            lines.append(f"- {path.name}")
+        for _path, display_name in attachments:
+            lines.append(f"- {display_name}")
         lines.append("")
 
     lines.extend(
         [
             "Thank you,",
-            "WHOA Weekly",
+            "",
+            "Noah Gonzales",
+            "Founder, WHOA",
         ]
     )
 
     return "\n".join(lines)
 
 
-def attach_file(msg: EmailMessage, path: Path) -> None:
+def attach_file(msg: EmailMessage, attachment: Attachment) -> None:
+    path, display_name = attachment
     content_type, _ = mimetypes.guess_type(str(path))
 
     if content_type:
@@ -216,22 +271,33 @@ def attach_file(msg: EmailMessage, path: Path) -> None:
         path.read_bytes(),
         maintype=maintype,
         subtype=subtype,
-        filename=path.name,
+        filename=display_name,
     )
+
+
+def get_from_name() -> str:
+    from_name = os.getenv("SMTP_FROM_NAME", "WHOA Weekly").strip() or "WHOA Weekly"
+
+    # Old internal sender name. Keep customer-facing email clean even if the
+    # old GitHub secret is still configured.
+    if from_name.lower() in {"trucking pack automation", "ai pack cron"}:
+        return "WHOA Weekly"
+
+    return from_name
 
 
 def send_email(
     to_addresses: List[str],
     subject: str,
     body: str,
-    attachments: List[Path],
+    attachments: List[Attachment],
 ) -> None:
     host = os.getenv("SMTP_HOST", "").strip()
     port = get_smtp_port()
     username = os.getenv("SMTP_USERNAME", "").strip()
     password = os.getenv("SMTP_PASSWORD", "").strip()
     from_email = os.getenv("SMTP_FROM_EMAIL", "").strip()
-    from_name = os.getenv("SMTP_FROM_NAME", "WHOA Weekly").strip()
+    from_name = get_from_name()
 
     msg = EmailMessage()
     msg["Subject"] = subject
@@ -274,7 +340,7 @@ def process_client(
         print(f"Email skipped for {company_name}: no recipients configured")
         return False
 
-    attachments = resolve_attachment_paths(week_dir, client)
+    attachments = resolve_attachment_paths(week_dir, client, week)
 
     subject = f"{company_name} Weekly Fleet Packet - {week}"
     body = build_email_body(client, week, attachments)
@@ -287,7 +353,7 @@ def process_client(
         client["email_sent_at"] = now_iso()
         client["email_recipients"] = recipients
         client["email_attachment_count"] = len(attachments)
-        client["email_attachments"] = [path.name for path in attachments]
+        client["email_attachments"] = [display_name for _path, display_name in attachments]
         client["email_error"] = None
 
         print(
@@ -303,7 +369,7 @@ def process_client(
         client["email_error"] = str(exc)
         client["email_recipients"] = recipients
         client["email_attachment_count"] = len(attachments)
-        client["email_attachments"] = [path.name for path in attachments]
+        client["email_attachments"] = [display_name for _path, display_name in attachments]
 
         print(f"Email failed for {company_name}: {exc}")
         return False
